@@ -1,0 +1,77 @@
+name: Release to PyPI
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pypi-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate release, all backends and distributions
+    runs-on: ubuntu-latest
+    env:
+      SPARK_LOCAL_IP: 127.0.0.1
+      PYSPARK_PYTHON: python
+      PYSPARK_DRIVER_PYTHON: python
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Confirm source and tag match the package version
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python tools/check_release.py
+          python - <<'PYCODE'
+          import os, pathlib, tomllib
+          version = tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version']
+          tag = os.environ['RELEASE_TAG']
+          if tag != 'v' + version:
+              raise SystemExit(f'Tag {tag!r} does not match v{version}')
+          PYCODE
+      - name: Install full test and packaging requirements
+        run: python -m pip install -e ".[test,duckdb,polars,spark,parquet]" build twine
+      - name: Core and native test suites
+        run: python -m pytest -q tests tests_validation tests_public --junitxml=release-tests.xml
+      - name: Confirm native backend tests truly ran (no silently skipped integration)
+        run: python tools/check_native_release_tests.py release-tests.xml
+      - name: Build distributions and validate metadata
+        run: |
+          python -m build
+          python -m twine check dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verified-quaxdim-distributions
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Publish to PyPI with short-lived OIDC credentials
+    needs: validate
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/quaxdim
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: verified-quaxdim-distributions
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

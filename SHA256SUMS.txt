@@ -1,0 +1,3 @@
+b0deddd752bda8cf91f55f5c4c33ff7e58431b49cf529bb64b86653fb06b6f54  dist/quaxdim-0.8.0rc1.tar.gz
+ef646f3e00730238320867d616f753f703741c976cac6b6abf831d881f98f949  dist/quaxdim-0.8.0rc1-py3-none-any.whl
+42a83308f72d742347a4f80f8f2f87d086487bdbdf7be47d8bf450cc7cfff62e  assets/quaxdim-logo.png

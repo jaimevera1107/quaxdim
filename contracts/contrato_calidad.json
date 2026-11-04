@@ -1,0 +1,430 @@
+{
+  "contract_version": "0.2.0",
+  "assets": [
+    {
+      "id": "mercado_laboral",
+      "name": "Mercado laboral histórico (ejemplo sintético de contrato)",
+      "format": "parquet",
+      "shape": "table",
+      "version": "2026.11",
+      "source": "ejemplo, no datos reales",
+      "grain": [
+        "YEAR",
+        "QUARTER",
+        "MPO_ID",
+        "OCU_ID"
+      ],
+      "keys": [
+        [
+          "YEAR",
+          "QUARTER",
+          "MPO_ID",
+          "OCU_ID"
+        ]
+      ],
+      "fields": [
+        {
+          "name": "YEAR",
+          "physical_type": "int16",
+          "logical_type": "integer",
+          "semantic_type": "calendar_year",
+          "nullable": false
+        },
+        {
+          "name": "QUARTER",
+          "physical_type": "int8",
+          "logical_type": "integer",
+          "semantic_type": "quarter",
+          "nullable": false
+        },
+        {
+          "name": "MPO_ID",
+          "physical_type": "utf8",
+          "logical_type": "string",
+          "semantic_type": "geographic_code",
+          "nullable": false,
+          "representation": {
+            "format_hint": "preserve_leading_zeroes"
+          }
+        },
+        {
+          "name": "OCU_ID",
+          "physical_type": "utf8",
+          "logical_type": "string",
+          "semantic_type": "occupation_code",
+          "nullable": true,
+          "missing_policy": {
+            "intrinsic_nulls": true,
+            "tokens": [
+              "",
+              "ND",
+              "S/D"
+            ],
+            "normalization": "trim_casefold"
+          }
+        },
+        {
+          "name": "SUELDO_MES",
+          "physical_type": "utf8",
+          "logical_type": "variant",
+          "semantic_type": "monthly_salary",
+          "nullable": true,
+          "variants": [
+            {
+              "id": "salary_numeric_legacy",
+              "when": {
+                "period": {
+                  "from": "2012-01-01",
+                  "to": "2018-12-31",
+                  "time_field": "FECHA_EVENTO"
+                }
+              },
+              "logical_type": "decimal",
+              "semantic_type": "salary_amount",
+              "representation": {
+                "decimal_separator": ".",
+                "currency": "COP"
+              },
+              "priority": 1
+            },
+            {
+              "id": "salary_band_recent",
+              "when": {
+                "period": {
+                  "from": "2019-01-01",
+                  "to": "2026-12-31",
+                  "time_field": "FECHA_EVENTO"
+                }
+              },
+              "logical_type": "categorical",
+              "semantic_type": "salary_band",
+              "priority": 1
+            }
+          ]
+        },
+        {
+          "name": "FECHA_EVENTO",
+          "physical_type": "timestamp[ms]",
+          "logical_type": "local_datetime",
+          "semantic_type": "event_timestamp",
+          "nullable": false,
+          "representation": {
+            "timezone": "America/Bogota"
+          }
+        },
+        {
+          "name": "FECHA_CAPTURA",
+          "physical_type": "timestamp[ms]",
+          "logical_type": "instant",
+          "semantic_type": "ingestion_timestamp",
+          "nullable": false,
+          "representation": {
+            "timezone": "UTC"
+          }
+        }
+      ]
+    }
+  ],
+  "dimensions": [
+    {
+      "id": "completeness",
+      "name": "Completitud",
+      "framework": "mahanti",
+      "version": "1.0.0",
+      "levels": [
+        "value",
+        "field"
+      ],
+      "measurement_modes": [
+        "internal"
+      ],
+      "default_metrics": [
+        "presence_rate"
+      ]
+    },
+    {
+      "id": "validity",
+      "name": "Validez",
+      "framework": "mahanti",
+      "version": "1.0.0",
+      "levels": [
+        "value",
+        "field"
+      ],
+      "measurement_modes": [
+        "contextual",
+        "external"
+      ],
+      "default_metrics": [
+        "catalog_conformance"
+      ]
+    },
+    {
+      "id": "uniqueness",
+      "name": "Unicidad",
+      "framework": "mahanti",
+      "version": "1.0.0",
+      "levels": [
+        "entity",
+        "table"
+      ],
+      "measurement_modes": [
+        "contextual"
+      ],
+      "default_metrics": [
+        "grain_uniqueness_rate"
+      ],
+      "related_dimensions": [
+        "duplication"
+      ],
+      "overlaps_with": [
+        "duplication"
+      ]
+    },
+    {
+      "id": "timeliness",
+      "name": "Oportunidad",
+      "framework": "mahanti",
+      "version": "1.0.0",
+      "levels": [
+        "record",
+        "dataset"
+      ],
+      "measurement_modes": [
+        "contextual"
+      ],
+      "default_metrics": [
+        "within_delay_rate"
+      ]
+    }
+  ],
+  "metrics": [
+    {
+      "id": "presence_rate",
+      "dimension_ids": [
+        "completeness"
+      ],
+      "version": "1.0.0",
+      "name": "Valores presentes sobre valores evaluables",
+      "kind": "conformance",
+      "target_levels": [
+        "value"
+      ],
+      "evaluator": "builtin.presence",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "denominator_unit": "value",
+      "numerator_definition": "valores no ausentes según política",
+      "denominator_definition": "valores elegibles",
+      "null_policy": "include_as_failure",
+      "unknown_policy": "indeterminate",
+      "evidence_mode": "internal",
+      "aggregation": "micro"
+    },
+    {
+      "id": "catalog_conformance",
+      "dimension_ids": [
+        "validity"
+      ],
+      "version": "1.0.0",
+      "name": "Conformidad con catálogo con vigencia",
+      "kind": "conformance",
+      "target_levels": [
+        "value"
+      ],
+      "evaluator": "reference.lookup_temporal",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "denominator_unit": "value",
+      "numerator_definition": "códigos con coincidencia válida en catálogo aplicable",
+      "denominator_definition": "valores no nulos elegibles",
+      "null_policy": "exclude",
+      "unknown_policy": "indeterminate",
+      "evidence_mode": "external",
+      "evidence_required": [
+        "official_catalog"
+      ],
+      "aggregation": "micro"
+    },
+    {
+      "id": "grain_uniqueness_rate",
+      "dimension_ids": [
+        "uniqueness"
+      ],
+      "version": "1.0.0",
+      "kind": "conformance",
+      "target_levels": [
+        "entity",
+        "table"
+      ],
+      "evaluator": "builtin.composite_uniqueness",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "denominator_unit": "entity",
+      "null_policy": "indeterminate",
+      "unknown_policy": "indeterminate",
+      "evidence_mode": "contextual",
+      "aggregation": "none"
+    },
+    {
+      "id": "within_delay_rate",
+      "dimension_ids": [
+        "timeliness"
+      ],
+      "version": "1.0.0",
+      "kind": "conformance",
+      "target_levels": [
+        "record"
+      ],
+      "evaluator": "builtin.max_delay",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "denominator_unit": "record",
+      "null_policy": "indeterminate",
+      "unknown_policy": "indeterminate",
+      "evidence_mode": "contextual",
+      "aggregation": "micro"
+    }
+  ],
+  "rules": [
+    {
+      "id": "OCU_ID_required",
+      "version": "1.0.0",
+      "asset_id": "mercado_laboral",
+      "metric_id": "presence_rate",
+      "target": {
+        "level": "value",
+        "fields": [
+          "OCU_ID"
+        ]
+      },
+      "expectation": {
+        "operator": "not_null"
+      },
+      "threshold": {
+        "operator": "gte",
+        "value": 0.98
+      },
+      "severity": "high",
+      "failure_action": "report"
+    },
+    {
+      "id": "OCU_ID_2025_catalog",
+      "version": "1.0.0",
+      "asset_id": "mercado_laboral",
+      "metric_id": "catalog_conformance",
+      "target": {
+        "level": "value",
+        "fields": [
+          "OCU_ID"
+        ]
+      },
+      "when_period": {
+        "from": "2025-01-01",
+        "to": "2025-12-31",
+        "time_field": "FECHA_EVENTO"
+      },
+      "expectation": {
+        "operator": "reference_lookup",
+        "reference_id": "ocupaciones_2025"
+      },
+      "reference_ids": [
+        "ocupaciones_2025"
+      ],
+      "threshold": {
+        "operator": "gte",
+        "value": 1.0
+      },
+      "on_missing_evidence": "missing_evidence",
+      "severity": "high"
+    },
+    {
+      "id": "grain_unique",
+      "version": "1.0.0",
+      "asset_id": "mercado_laboral",
+      "metric_id": "grain_uniqueness_rate",
+      "target": {
+        "level": "table",
+        "fields": [
+          "YEAR",
+          "QUARTER",
+          "MPO_ID",
+          "OCU_ID"
+        ]
+      },
+      "expectation": {
+        "operator": "composite_unique",
+        "key_fields": [
+          "YEAR",
+          "QUARTER",
+          "MPO_ID",
+          "OCU_ID"
+        ]
+      },
+      "threshold": {
+        "operator": "eq",
+        "value": 1.0
+      },
+      "severity": "critical"
+    },
+    {
+      "id": "capture_within_7_days",
+      "version": "1.0.0",
+      "asset_id": "mercado_laboral",
+      "metric_id": "within_delay_rate",
+      "target": {
+        "level": "record",
+        "fields": [
+          "FECHA_EVENTO",
+          "FECHA_CAPTURA"
+        ]
+      },
+      "expectation": {
+        "operator": "max_delay",
+        "value": 7,
+        "extensions": {
+          "unit": "calendar_days",
+          "start": "FECHA_EVENTO",
+          "end": "FECHA_CAPTURA"
+        }
+      },
+      "threshold": {
+        "operator": "gte",
+        "value": 0.95
+      },
+      "severity": "medium"
+    }
+  ],
+  "references": [
+    {
+      "id": "ocupaciones_2025",
+      "kind": "official_catalog",
+      "version": "2025",
+      "description": "Referencia ilustrativa; requiere vincular un catálogo real antes de medir exactitud/conformidad",
+      "source": "no configurada",
+      "valid_period": {
+        "from": "2025-01-01",
+        "to": "2025-12-31"
+      },
+      "access_level": "internal"
+    }
+  ],
+  "evaluation": {
+    "id": "audit_demo_2026",
+    "purpose": "validar datos para un producto estadístico",
+    "mode": "audit",
+    "preserve_original": true,
+    "accuracy_mode": "exact",
+    "ambiguous_parse": "indeterminate",
+    "data_disclosure": "masked_samples",
+    "critical_fields": [
+      "OCU_ID",
+      "MPO_ID"
+    ],
+    "max_memory_mb": 4096,
+    "seed": 42,
+    "extensions": {
+      "status": "design_example_not_executed"
+    }
+  }
+}

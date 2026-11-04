@@ -1,0 +1,70 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quaxdim"
+version = "0.8.0rc1"
+description = "Scalable, explainable and auditable multidimensional data-quality checks"
+readme = {file = "README.md", content-type = "text/markdown"}
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{name = "QuaxDim contributors"}]
+keywords = ["data quality", "data validation", "profiling", "data contracts", "spark", "duckdb", "polars"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Database",
+  "Topic :: Scientific/Engineering :: Information Analysis",
+]
+dependencies = ["PyYAML>=6.0", "jsonschema>=4.18"]
+
+[project.urls]
+Homepage = "https://github.com/jaimevera1107/quaxdim"
+Source = "https://github.com/jaimevera1107/quaxdim"
+Issues = "https://github.com/jaimevera1107/quaxdim/issues"
+Documentation = "https://github.com/jaimevera1107/quaxdim/tree/main/docs"
+Changelog = "https://github.com/jaimevera1107/quaxdim/blob/main/CHANGELOG.md"
+
+[project.optional-dependencies]
+pandas = ["pandas>=2.0", "numpy>=1.24"]
+legacy = ["pandas>=2.0", "numpy>=1.24"]
+duckdb = ["duckdb>=1.1"]
+polars = ["polars>=1.0"]
+spark = ["pyspark>=3.5,<5"]
+parquet = ["pyarrow>=13"]
+excel = ["openpyxl>=3.1"]
+regex = ["regex>=2024.0.0"]
+scale = ["duckdb>=1.1", "polars>=1.0", "pyarrow>=13"]
+test = ["pytest>=8.0", "pandas>=2.0", "numpy>=1.24"]
+dev = ["pytest>=8.0", "pandas>=2.0", "numpy>=1.24", "build>=1.2", "twine>=5.0"]
+
+[project.scripts]
+quaxdim = "quality_dimensions.cli:main"
+qd = "quality_dimensions.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["quality_dimensions*", "quaxdim*"]
+
+[tool.setuptools.package-data]
+quality_dimensions = ["schemas/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "tests_validation", "tests_public"]
+addopts = "-ra"
+
+[tool.coverage.run]
+source = ["quality_dimensions", "quaxdim"]
+
+[tool.coverage.report]
+show_missing = true

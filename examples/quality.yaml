@@ -1,0 +1,67 @@
+# Rules are explicit. No default values, numeric coercion or automatic mutation.
+checks:
+  - id: schema
+    dimension: data_specification
+    rule: schema_columns
+    params:
+      expected: [entity_id, year, department, occupied, total, event_date, ingested_at]
+      exact: false
+  - id: entity_id_required
+    dimension: completeness
+    rule: required
+    columns: [entity_id]
+    params:
+      null_values: ["N/A", "SIN DATO"]
+  - id: unique_period_department
+    dimension: uniqueness
+    rule: unique
+    columns: [entity_id, year, department]
+  - id: department_domain
+    dimension: validity
+    rule: allowed
+    columns: [department]
+    params:
+      values: [Bogotá, Antioquia, Boyacá]
+  - id: nonnegative_total
+    dimension: validity
+    rule: between
+    columns: [total]
+    params:
+      min: 0
+  - id: total_higher_or_equal
+    dimension: consistency
+    rule: compare
+    columns: [total]
+    params:
+      right_column: occupied
+      op: ge
+  - id: arrives_in_two_days
+    dimension: timeliness
+    rule: delay_days
+    columns: [event_date]
+    params:
+      arrival_column: ingested_at
+      max_days: 2
+    null_policy: fail
+  - id: has_metadata
+    dimension: data_specification
+    rule: metadata_fields
+    params:
+      required: [owner, description, version]
+    min_pass_rate: 1.0
+  - id: completeness_of_expected_universe
+    dimension: coverage
+    rule: coverage
+    columns: [year, department]
+    params:
+      reference: expected_universe
+      reference_columns: [year, department]
+    min_pass_rate: 1.0
+  - id: assessed_interpretability
+    dimension: interpretability
+    rule: assessment
+    params:
+      source: "User study Q4, attached externally"
+      assessor: "data steward"
+      score: 0.80
+    min_pass_rate: 0.75

@@ -1,0 +1,37 @@
+# Python, builds, test artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.whl
+*.tar.gz
+.tox/
+.mypy_cache/
+# Generated diagnostics and benchmarks
+reportes/
+reports/
+qa/*.json
+qa/*.log
+qa/*.xml
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+# Secrets, local environment
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+
+# Publishing verification environment
+.venv_check_pypi/

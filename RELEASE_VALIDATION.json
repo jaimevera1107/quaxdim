@@ -1,0 +1,31 @@
+{
+  "name": "quaxdim",
+  "version": "0.8.0rc1",
+  "timestamp_utc": "2026-11-04T06:59:44.978237+00:00",
+  "checks": {
+    "release_contract": "PASS",
+    "wheel_build": "PASS",
+    "sdist_build": "PASS",
+    "wheel_isolated_install": "PASS",
+    "cli_smoke": "PASS",
+    "test_suite": {
+      "passed": 170,
+      "skipped": 20,
+      "failed": 0
+    },
+    "optional_engines_local": "NOT_RUN (DuckDB, Polars, PySpark absent)",
+    "twine_check_local": "NOT_RUN (Twine unavailable; automated CI step included)",
+    "pypi_name_availability": "NOT_CONFIRMED",
+    "github_remote": "NOT_CREATED"
+  },
+  "sha256": {
+    "dist/quaxdim-0.8.0rc1.tar.gz": "b0deddd752bda8cf91f55f5c4c33ff7e58431b49cf529bb64b86653fb06b6f54",
+    "dist/quaxdim-0.8.0rc1-py3-none-any.whl": "ef646f3e00730238320867d616f753f703741c976cac6b6abf831d881f98f949",
+    "assets/quaxdim-logo.png": "42a83308f72d742347a4f80f8f2f87d086487bdbdf7be47d8bf450cc7cfff62e"
+  },
+  "notes": [
+    "Logo copied unchanged from user-provided image.",
+    "Version is a release candidate; full backend parity requires GitHub CI and target-environment tests.",
+    "No publishing action performed."
+  ]
+}

@@ -1,0 +1,76 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: Core • ${{ matrix.os }} • Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.10', '3.11', '3.12', '3.13', '3.14']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install with tests
+        run: python -m pip install -e ".[test]"
+      - name: Tests — core and compatibility
+        run: python -m pytest -q tests tests_validation tests_public
+      - name: Smoke CLI
+        run: python -m quaxdim dimensions
+
+  native:
+    name: DuckDB and Polars • Python 3.11
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -e ".[test,duckdb,polars,parquet]"
+      - name: Native engine checks
+        run: python -m pytest -q tests_validation/test_optional_engines.py tests_validation/test_v08_native_optional.py tests_validation/test_backend_parity.py tests_public
+
+  spark:
+    name: Classic PySpark batch • Python 3.11 / Java 21
+    runs-on: ubuntu-latest
+    env:
+      SPARK_LOCAL_IP: 127.0.0.1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -e ".[test,spark,parquet]"
+      - name: Spark tests
+        run: python -m pytest -q tests/test_spark_backend.py tests_validation/test_optional_engines.py tests_validation/test_v08_native_optional.py
+
+  package:
+    name: Build distributions and check metadata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --upgrade build twine
+      - run: python -m build
+      - run: python -m twine check dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-dist
+          path: dist/*
