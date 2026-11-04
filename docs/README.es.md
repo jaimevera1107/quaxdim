@@ -29,10 +29,15 @@ No se garantiza equivalencia entre motores para reglas fuera del subconjunto
 portable documentado. Los formatos del catálogo son posibilidades de extensión,
 no una lista de adaptadores implementados.
 
-## Ejecutar pruebas en Windows
+## Pruebas y mantenimiento
 
-Extrae el repositorio y ejecuta `Ejecutar_Pruebas_Completas.cmd` desde la carpeta
-principal. Los reportes quedan en `reportes/`, que no se publica en GitHub.
+Instala las dependencias de desarrollo y ejecuta las pruebas:
 
-Para instalar desde GitHub o publicar en PyPI consulta
-[la guía de publicación](INSTRUCCIONES_PUBLICACION.md).
+```powershell
+python -m pip install -e ".[test]"
+python -m pytest -q tests tests_validation tests_public
+```
+
+Las pruebas de DuckDB, Polars y Spark requieren sus dependencias opcionales.
+Los benchmarks reproducibles están en [`benchmarks/`](../benchmarks/).
+La automatización de GitHub → PyPI está documentada en [RELEASE.md](../RELEASE.md).

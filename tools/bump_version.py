@@ -11,8 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FILES = [
     'pyproject.toml', 'src/quaxdim/__init__.py',
-    'src/quality_dimensions/__init__.py', 'README.md', 'INICIO_AQUI.md',
-    'docs/INSTRUCCIONES_PUBLICACION.md',
+    'src/quality_dimensions/__init__.py', 'README.md',
 ]
 
 
