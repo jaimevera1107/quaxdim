@@ -46,7 +46,7 @@ def test_unapproved_report_does_not_expose_configuration(tmp_path):
 
 
 def test_advanced_discovery_top_level_import_is_lazy():
-    import subprocess,sys
+    import os,subprocess,sys
     code = ('import sys; import quality_dimensions; '
             'assert "pandas" not in sys.modules; '
             'assert "pyspark" not in sys.modules; '
@@ -54,5 +54,7 @@ def test_advanced_discovery_top_level_import_is_lazy():
             'assert "duckdb" not in sys.modules; '
             'from quality_dimensions import DiscoveryBudget, discover_advanced; '
             'assert "pandas" not in sys.modules')
-    run=subprocess.run([sys.executable,'-S','-c',code],capture_output=True,text=True,timeout=30)
+    env = os.environ.copy()
+    env['PYTHONPATH'] = str(ROOT / 'src')
+    run=subprocess.run([sys.executable,'-S','-c',code],env=env,capture_output=True,text=True,timeout=30)
     assert run.returncode==0, run.stderr
