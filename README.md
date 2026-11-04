@@ -129,10 +129,10 @@ Exact uniqueness checks may need large memory or an external engine.
 ## Documentation
 
 - [Spanish introduction](docs/README.es.md)
-- [Architecture and dimensions](docs/vision_multidimensional_es.md)
-- [Applicability and contracts](docs/MOTOR_APLICABILIDAD_v0_3.md)
-- [Optimized planner](docs/PLANIFICADOR_Y_PARIDAD_v0_8.md)
-- [Publication and Windows guide](INICIO_AQUI.md)
+- [Dimensions and methodology](docs/dimensions.es.md)
+- [Architecture and universal contracts](docs/architecture.es.md)
+- [Native execution and planner](docs/execution.es.md)
+- [Release and PyPI publishing](RELEASE.md)
 - [Changelog](CHANGELOG.md) and [security policy](SECURITY.md)
 
 ## Development

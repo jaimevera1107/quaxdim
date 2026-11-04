@@ -32,7 +32,7 @@ try {
     git push origin $tag
     if ($LASTEXITCODE -ne 0) { throw 'Tag local creado, pero no subido; revisa antes de repetir.' }
     $releaseOptions = @()
-    if ($version -match (?:a|b|rc)[0-9]+) { $releaseOptions += --prerelease }
+    if ($version -match '(?:a|b|rc)[0-9]+') { $releaseOptions += '--prerelease' }
     gh release create $tag --repo "$Owner/$Repo" --verify-tag --title "QuaxDim $version" --generate-notes @releaseOptions
     if ($LASTEXITCODE -ne 0) { throw 'El tag ya está remoto, pero no pude crear la GitHub Release.' }
     Write-Host "Publicación iniciada: https://github.com/$Owner/$Repo/actions/workflows/release.yml"

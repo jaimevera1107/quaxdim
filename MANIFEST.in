@@ -1,22 +1,15 @@
-include LICENSE README.md CHANGELOG.md SECURITY.md CONTRIBUTING.md RELEASE.md
-recursive-include assets *.png *.md
+include LICENSE README.md CHANGELOG.md CONTRIBUTING.md SECURITY.md
 recursive-include contracts *.json *.yaml
 recursive-include docs *.md *.csv
 recursive-include examples *.py *.yaml *.json
-recursive-include qa *.py
 recursive-include tests *.py
 recursive-include tests_validation *.py
 recursive-include tests_public *.py
 recursive-include src/quality_dimensions/schemas *.json
-prune reportes
-prune dist
+prune .github
+prune scripts
+prune benchmarks
 prune build
+prune dist
+prune reportes
 global-exclude __pycache__ *.py[cod] .DS_Store *.log *.xml
-
-include *.cmd *.ps1
-recursive-include .github *.yml *.yaml *.md
-
-recursive-include tools *.py
-
-include INICIO_AQUI.md
-recursive-include scripts *.ps1

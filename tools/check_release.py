@@ -16,9 +16,9 @@ def check():
         data = (ROOT / p).read_text(encoding="utf-8")
         assert '__version__ = "' + ver + '"' in data, f"Version mismatch: {p}"
     req = ("assets/quaxdim-logo.png", "LICENSE", "README.md", ".gitignore",
-           "SECURITY.md", "CONTRIBUTING.md", "RELEASE.md", "INICIO_AQUI.md",
-           "scripts/01_Subir_a_GitHub.ps1", "scripts/02_Publicar_Release.ps1",
-           "scripts/03_Verificar_PyPI.ps1",
+           "SECURITY.md", "CONTRIBUTING.md", "RELEASE.md",
+           "contracts/quality-contract.schema.json", "docs/architecture.es.md",
+           "scripts/publish_release.ps1", "scripts/verify_pypi.ps1",
            "tools/check_native_release_tests.py",
            ".github/workflows/ci.yml", ".github/workflows/release.yml",
            "tests_public/test_public_api.py")

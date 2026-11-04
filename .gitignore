@@ -35,3 +35,12 @@ Thumbs.db
 
 # Publishing verification environment
 .venv_check_pypi/
+
+# Temporary local test/cleanup artifacts
+*.patch
+*.zip
+*.bak
+benchmark-results/
+coverage.xml
+junit*.xml
+.venv_check_pypi/

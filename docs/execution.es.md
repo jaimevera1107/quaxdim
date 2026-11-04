@@ -74,9 +74,11 @@ qd native-execute "D:\\datos\\archivo.csv" --asset dataset --contract contrato.j
 
 ## Pruebas y rendimiento
 
-`Ejecutar_Pruebas_Completas.cmd` instala en `.venv` el paquete de pruebas y motores opcionales, ejecuta regresiones de la v0.7.1, pruebas de contratos, benchmarks y pruebas nuevas de paridad v0.8. Los resultados se guardan en `reportes/`.
+Para ejecutar todas las regresiones: `python -m pytest -q tests tests_validation tests_public`.
+Los benchmarks de escala están en [`benchmarks/`](../benchmarks/) y generan resultados fuera del repositorio.
 
-`Ejecutar_Escala_1_5_10M.cmd` realiza el mismo escenario (misma fuente generada, tres reglas, idénticos resultados esperados) a 1, 5 y 10 millones de filas por motor; **se genera un archivo independiente para cada motor** y el tiempo de creación se separa del de ejecución. Puede demandar espacio en disco y tardar varios minutos por motor, especialmente Spark local. El rendimiento de Spark en una estación de trabajo no sustituye pruebas en clúster.
+
+`python benchmarks/evaluation_backends.py --engine csv_stream --rows 1000000 --output bench.json` inicia el mismo escenario (misma fuente generada, tres reglas, idénticos resultados esperados) a 1, 5 y 10 millones de filas por motor; **se genera un archivo independiente para cada motor** y el tiempo de creación se separa del de ejecución. Puede demandar espacio en disco y tardar varios minutos por motor, especialmente Spark local. El rendimiento de Spark en una estación de trabajo no sustituye pruebas en clúster.
 
 ### Estado de validación a fecha de elaboración
 
