@@ -53,9 +53,6 @@ jobs:
   lint:
     name: Lint and type check
     runs-on: ubuntu-latest
-    # Informational until the style/typing cleanup lands; then remove the
-    # next line so these checks block merges.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

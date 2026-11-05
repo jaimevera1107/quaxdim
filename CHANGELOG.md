@@ -13,8 +13,18 @@
 - Ship `py.typed`; remove the unused `legacy` extra and the duplicated
   contract JSON schema (the packaged copy is the single source).
 - Example contracts renamed to `quality_contract.{json,yaml}`.
-- CI: add a core-only (no pandas) job, wheel-content checks and an
-  informational lint/type-check job.
+- CI: add a core-only (no pandas) job, wheel-content checks and a blocking
+  lint/type-check job.
+- Code quality: formatted to PEP 8 (79 columns); `ruff` (E, W, F, I, N, UP,
+  B, D1) and `mypy` (`disallow_untyped_defs`) are clean and enforced in CI;
+  every function is annotated and every public class, method and function has
+  a docstring.
+- Fix: closures that captured loop variables, unused locals, `zip` without
+  `strict`, and a variable reused with two types in `_polars_run`.
+- Fix: error messages pointed to a removed package name; they now name the
+  `quaxdim` extras.
+- Behaviour made explicit: an approved rule without a dimension raises
+  `ValueError`; `SparkBackendUnavailable` is now `SparkBackendUnavailableError`.
 
 ## 0.8.0rc1 — 2026-11-04
 

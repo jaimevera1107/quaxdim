@@ -78,7 +78,10 @@ target-version = "py310"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
-select = ["E", "W", "F", "I", "N", "UP", "B"]
+select = ["E", "W", "F", "I", "N", "UP", "B", "D1"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 # PySpark's universal aliases (F = functions, T = types, DataFrame class

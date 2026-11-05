@@ -86,6 +86,7 @@ class DiscoveryBudget:
     )
 
     def __post_init__(self) -> None:
+        """Validate the mode and require every numeric limit to be positive."""
         if self.mode not in {"schema", "balanced", "deep"}:
             raise ValueError("mode must be schema, balanced or deep")
         for name in (
@@ -109,11 +110,13 @@ class ApproxCardinality:
     """
 
     def __init__(self, precision: int = 10):
+        """Create a sketch with ``2 ** precision`` registers."""
         self.p = precision
         self.m = 1 << precision
         self.reg = bytearray(self.m)
 
     def add(self, value: str) -> None:
+        """Add one value to the sketch; the value itself is never stored."""
         digest = int.from_bytes(
             blake2b(
                 value.encode("utf-8", "surrogatepass"), digest_size=8
@@ -128,6 +131,7 @@ class ApproxCardinality:
             self.reg[index] = rho
 
     def estimate(self) -> float:
+        """Return the estimated number of distinct values added so far."""
         import math
 
         m = self.m
@@ -145,11 +149,17 @@ class ApproxCardinality:
 
     @property
     def relative_std_error(self) -> float:
+        """Theoretical relative standard error of the estimate."""
         return 1.04 / self.m**0.5
 
 
 @dataclass(frozen=True)
 class Advice:
+    """One reviewable recommendation produced by discovery.
+
+    Advice is advisory: nothing is enabled until a person approves it.
+    """
+
     id: str
     kind: str
     title: str
@@ -168,6 +178,12 @@ class Advice:
     supported_backends: tuple[str, ...] = ()
 
     def to_dict(self, reveal_configuration: bool = False) -> dict[str, Any]:
+        """Return a JSON-serialisable dictionary.
+
+        Args:
+            reveal_configuration: Include raw expectation values, which may
+                contain data values, only when explicitly requested.
+        """
         out = {
             "id": self.id,
             "kind": self.kind,
@@ -193,12 +209,18 @@ class Advice:
 
 @dataclass(frozen=True)
 class AdvancedDiscoveryReport:
+    """Result of :func:`discover_advanced`.
+
+    Holds per-asset profiles, recommendations and warnings.
+    """
+
     assets: dict[str, dict[str, Any]]
     recommendations: tuple[Advice, ...]
     warnings: tuple[str, ...] = ()
     budget: DiscoveryBudget = field(default_factory=DiscoveryBudget)
 
     def to_dict(self, *, reveal_configuration: bool = False) -> dict[str, Any]:
+        """Return the whole report as a JSON-serialisable dictionary."""
         return {
             "version": "0.8.0.dev0",
             "budget": self.budget.__dict__,
@@ -215,6 +237,15 @@ class AdvancedDiscoveryReport:
         *,
         reveal_configuration: bool = False,
     ) -> str:
+        """Serialise to JSON, optionally writing it to ``path``.
+
+        Returns:
+            The JSON text.
+
+        Args:
+            path: Optional output file.
+            reveal_configuration: See :meth:`Advice.to_dict`.
+        """
         # Budget reveals no row values. All raw lexical samples are kept
         # internally.
         doc = json.dumps(
@@ -277,6 +308,11 @@ class AdvancedDiscoveryReport:
         return output
 
     def review_queue(self, priority: str | None = None) -> list[Advice]:
+        """Return recommendations ordered by priority.
+
+        Args:
+            priority: When given, keep only recommendations of that priority.
+        """
         rank = {"high": 0, "medium": 1, "low": 2}
         return sorted(
             (

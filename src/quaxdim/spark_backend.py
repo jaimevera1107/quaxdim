@@ -325,6 +325,12 @@ class SparkContractExecutor:
     """
 
     def __init__(self, *, max_catalog_literals: int = 1000):
+        """Create an executor.
+
+        Args:
+            max_catalog_literals: Largest catalog that may be embedded in a
+                Spark expression.
+        """
         if max_catalog_literals < 1:
             raise ValueError("max_catalog_literals must be positive")
         self.max_catalog_literals = max_catalog_literals
@@ -811,6 +817,10 @@ class SparkContractExecutor:
         data: Mapping[str, Any],
         evidence: Mapping[str, Any] | None = None,
     ) -> ContractExecutionReport:
+        """Plan and execute ``contract`` on classic PySpark DataFrames.
+
+        Rows are never collected to the driver.
+        """
         evidence = evidence or {}
         plan = self._preflight(contract, data, evidence)
         metrics = {m["id"]: m for m in contract["metrics"]}

@@ -13,6 +13,8 @@ from dataclasses import asdict, dataclass
 
 @dataclass(frozen=True)
 class DimensionSpec:
+    """Catalog entry for one data-quality dimension."""
+
     id: str
     name_es: str
     family: str

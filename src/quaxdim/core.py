@@ -86,6 +86,7 @@ class Check:
     not_applicable_reason: str = ""
 
     def __post_init__(self) -> None:
+        """Validate the check definition, raising ``ValueError`` if invalid."""
         if not self.id or not isinstance(self.id, str):
             raise ValueError("Check id must be a nonempty string")
         if self.dimension not in DIMENSIONS and not re.fullmatch(
@@ -134,6 +135,7 @@ class Check:
 
     @classmethod
     def from_dict(cls, obj: Mapping[str, Any]) -> Check:
+        """Build a check from a mapping."""
         allowed = {
             "id",
             "dimension",
@@ -160,6 +162,7 @@ class Check:
         return cls(**data)
 
     def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serialisable dictionary."""
         return {
             "id": self.id,
             "dimension": self.dimension,
@@ -178,6 +181,8 @@ class Check:
 
 @dataclass(frozen=True)
 class RuleResult:
+    """Outcome of one check: counts and a status such as PASS or FAIL."""
+
     id: str
     dimension: str
     rule: str
@@ -195,6 +200,7 @@ class RuleResult:
     severity: str = "error"
 
     def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serialisable dictionary."""
         return {
             **self.__dict__,
             "sample_failed_rows": list(self.sample_failed_rows),
@@ -203,11 +209,14 @@ class RuleResult:
 
 @dataclass(frozen=True)
 class QualityReport:
+    """Results of running a :class:`QualitySuite` on one table."""
+
     results: tuple[RuleResult, ...]
     row_count: int
     generated_at: str
 
     def to_frame(self) -> pd.DataFrame:
+        """Return one row per check as a pandas DataFrame."""
         return pd.DataFrame([r.to_dict() for r in self.results])
 
     def dimension_coverage(
@@ -330,6 +339,11 @@ class QualityReport:
         )
 
     def to_json(self, path: str | Path | None = None) -> str:
+        """Serialise to JSON, optionally writing it to ``path``.
+
+        Returns:
+            The JSON text.
+        """
         data = {
             "row_count": self.row_count,
             "generated_at": self.generated_at,
@@ -345,12 +359,20 @@ class QualityReport:
 
 
 class QualitySuite:
+    """A set of declarative checks evaluated on a pandas DataFrame."""
+
     def __init__(
         self,
         checks: list[Check] | tuple[Check, ...] | None = None,
         *,
         max_failure_examples: int = 10,
     ):
+        """Create a suite.
+
+        Args:
+            checks: Initial checks; identifiers must be unique.
+            max_failure_examples: Maximum failure examples kept per check.
+        """
         self.checks = list(checks or [])
         self.max_failure_examples = max_failure_examples
         self._callbacks: dict[
@@ -364,6 +386,7 @@ class QualitySuite:
             raise ValueError("Check ids must be unique")
 
     def add(self, check: Check) -> QualitySuite:
+        """Add a check and return the suite, to allow chaining."""
         self.checks.append(check)
         self._ensure_unique_ids()
         return self
@@ -371,6 +394,7 @@ class QualitySuite:
     def register(
         self, name: str, fn: Callable[[pd.DataFrame, Check], pd.Series]
     ) -> QualitySuite:
+        """Register a custom check function under ``name``."""
         if not name or not callable(fn):
             raise ValueError("register(name, callable) required")
         self._callbacks[name] = fn
@@ -378,6 +402,7 @@ class QualitySuite:
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> QualitySuite:
+        """Load a suite from a YAML file."""
         with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
         if (
@@ -391,6 +416,7 @@ class QualitySuite:
         return cls([Check.from_dict(x) for x in data["checks"]])
 
     def to_yaml(self, path: str | Path) -> None:
+        """Write the suite to a YAML file."""
         Path(path).write_text(
             yaml.safe_dump(
                 {"checks": [c.to_dict() for c in self.checks]},
@@ -408,6 +434,7 @@ class QualitySuite:
         as_of: str | datetime | None = None,
         metadata: Mapping[str, Any] | None = None,
     ) -> QualityReport:
+        """Evaluate every check on ``data`` and return the report."""
         if not isinstance(data, pd.DataFrame):
             raise TypeError("First backend supports pandas.DataFrame only")
         references = references or {}

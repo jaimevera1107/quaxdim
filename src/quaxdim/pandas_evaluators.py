@@ -60,6 +60,12 @@ def evaluate_pandas_extra(
     missing_policy: str,
     is_missing: Callable[..., np.ndarray],
 ) -> tuple[np.ndarray, str]:
+    """Evaluate one additional pandas kernel.
+
+    Returns:
+        A pair ``(state, unit)``: the per-row state (1 pass, 0 fail,
+        -1 unknown, -2 excluded) and the counting unit.
+    """
     names = rule["target"]["fields"]
     expectation = rule["expectation"]
     output = np.full(len(df), -2, dtype=np.int8)

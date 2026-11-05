@@ -43,6 +43,8 @@ class EvaluationError(ValueError):
 
 @dataclass(frozen=True)
 class ContractRuleResult:
+    """Measured outcome of one rule: counts, rates and status."""
+
     rule_id: str
     asset_id: str
     metric_id: str
@@ -70,6 +72,7 @@ class ContractRuleResult:
     reasons: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serialisable dictionary."""
         return {
             **asdict(self),
             "sample_failed_positions": list(self.sample_failed_positions),
@@ -83,6 +86,8 @@ class ContractRuleResult:
 
 @dataclass(frozen=True)
 class ContractExecutionReport:
+    """Results of executing a contract, together with its plan."""
+
     contract_version: str
     contract_sha256: str
     generated_at: str
@@ -90,6 +95,7 @@ class ContractExecutionReport:
     results: tuple[ContractRuleResult, ...]
 
     def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serialisable dictionary."""
         return {
             "contract_version": self.contract_version,
             "contract_sha256": self.contract_sha256,
@@ -100,6 +106,11 @@ class ContractExecutionReport:
         }
 
     def to_json(self, path: str | Path | None = None) -> str:
+        """Serialise to JSON, optionally writing it to ``path``.
+
+        Returns:
+            The JSON text.
+        """
         data = json.dumps(
             self.to_dict(), indent=2, ensure_ascii=False, allow_nan=False
         )
@@ -108,6 +119,7 @@ class ContractExecutionReport:
         return data
 
     def to_frame(self) -> pd.DataFrame:
+        """Return one row per rule as a pandas DataFrame."""
         return pd.DataFrame([r.to_dict() for r in self.results])
 
     @property
@@ -406,6 +418,12 @@ class ContractExecutor:
         planner: ApplicabilityPlanner | None = None,
         max_failure_examples: int = 10,
     ):
+        """Create an executor.
+
+        Args:
+            planner: Planner used for the preflight; defaults to a new one.
+            max_failure_examples: Maximum failing row positions kept per rule.
+        """
         self.planner = planner or ApplicabilityPlanner()
         if max_failure_examples < 0:
             raise ValueError("max_failure_examples must be >= 0")
@@ -419,6 +437,10 @@ class ContractExecutor:
         evidence: Mapping[str, Any] | None = None,
         plan: EvaluationPlan | None = None,
     ) -> ContractExecutionReport:
+        """Plan and execute ``contract`` on pandas tables.
+
+        Rules that are not READY are reported as blocked, never as passed.
+        """
         # Replan against the supplied objects; don't trust an obsolete user
         # plan.
         # If a plan is explicitly supplied, reject any incompatible decisions.

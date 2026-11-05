@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 
 def read_data(path: str) -> pd.DataFrame:
+    """Read a tabular file into a pandas DataFrame, by file extension."""
     import pandas as pd
 
     suffix = Path(path).suffix.casefold()
@@ -28,6 +29,11 @@ def read_data(path: str) -> pd.DataFrame:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the ``quaxdim`` command line interface.
+
+    Returns:
+        The process exit code.
+    """
     parser = argparse.ArgumentParser(
         prog="quaxdim", description="Auditable data-quality contracts"
     )

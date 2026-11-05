@@ -118,6 +118,11 @@ def _logical(s: pd.Series) -> tuple[str, str]:
 
 @dataclass(frozen=True)
 class Recommendation:
+    """A suggested rule or review item.
+
+    Recommendations are advisory until a person approves them.
+    """
+
     id: str
     fields: tuple[str, ...]
     kind: str  # rule | context | semantic | missing_policy
@@ -135,6 +140,12 @@ class Recommendation:
     def to_dict(
         self, *, include_configuration: bool = False
     ) -> dict[str, Any]:
+        """Return a JSON-serialisable dictionary.
+
+        Args:
+            include_configuration: Include the expectation, which may contain
+                raw category values, only when explicitly requested.
+        """
         out = {
             "id": self.id,
             "fields": list(self.fields),
@@ -158,6 +169,8 @@ class Recommendation:
 
 @dataclass(frozen=True)
 class DiscoveryReport:
+    """Result of :func:`discover` on one pandas DataFrame or Spark schema."""
+
     asset_id: str
     backend: str
     row_count: int | None
@@ -168,6 +181,11 @@ class DiscoveryReport:
     def to_dict(
         self, *, include_configuration: bool = False
     ) -> dict[str, Any]:
+        """Return a JSON-serialisable dictionary.
+
+        Args:
+            include_configuration: See :meth:`Recommendation.to_dict`.
+        """
         return {
             "asset_id": self.asset_id,
             "backend": self.backend,
@@ -186,6 +204,15 @@ class DiscoveryReport:
         *,
         include_configuration: bool = False,
     ) -> str:
+        """Serialise to JSON, optionally writing it to ``path``.
+
+        Returns:
+            The JSON text.
+
+        Args:
+            path: Optional output file.
+            include_configuration: See :meth:`Recommendation.to_dict`.
+        """
         result = json.dumps(
             self.to_dict(include_configuration=include_configuration),
             ensure_ascii=False,
@@ -200,6 +227,7 @@ class DiscoveryReport:
         return result
 
     def to_frame(self) -> pd.DataFrame:
+        """Return one row per recommendation as a pandas DataFrame."""
         return pd.DataFrame(
             [
                 {

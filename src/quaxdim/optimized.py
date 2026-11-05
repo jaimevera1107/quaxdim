@@ -130,6 +130,8 @@ def _source_engine(source: Any, engine: str) -> str:
 
 @dataclass(frozen=True)
 class PlannedRule:
+    """Preflight verdict for one rule on a native engine."""
+
     rule_id: str
     asset_id: str
     metric_id: str
@@ -140,17 +142,21 @@ class PlannedRule:
     cost: str
 
     def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serialisable dictionary."""
         return {**asdict(self), "fields": list(self.fields)}
 
 
 @dataclass(frozen=True)
 class OptimizedPlan:
+    """Engine chosen per asset and preflight verdict of every rule."""
+
     engine_by_asset: dict[str, str]
     rules: tuple[PlannedRule, ...]
     scan_groups: dict[str, dict[str, int]]
     warnings: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serialisable dictionary."""
         return {
             "engine_by_asset": self.engine_by_asset,
             "rules": [r.to_dict() for r in self.rules],
@@ -159,6 +165,11 @@ class OptimizedPlan:
         }
 
     def to_json(self, path: str | Path | None = None) -> str:
+        """Serialise to JSON, optionally writing it to ``path``.
+
+        Returns:
+            The JSON text.
+        """
         s = json.dumps(self.to_dict(), ensure_ascii=False, indent=2)
         if path:
             Path(path).write_text(s + "\n", encoding="utf-8")
@@ -167,6 +178,8 @@ class OptimizedPlan:
 
 @dataclass(frozen=True)
 class OptimizedRuleResult:
+    """Measured outcome of one rule on a native engine."""
+
     rule_id: str
     asset_id: str
     metric_id: str
@@ -187,6 +200,7 @@ class OptimizedRuleResult:
     reasons: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serialisable dictionary."""
         return {
             **asdict(self),
             "dimension_ids": list(self.dimension_ids),
@@ -196,6 +210,8 @@ class OptimizedRuleResult:
 
 @dataclass(frozen=True)
 class OptimizedReport:
+    """Results of a native execution, together with its plan."""
+
     contract_version: str
     contract_sha256: str
     generated_at: str
@@ -203,6 +219,7 @@ class OptimizedReport:
     results: tuple[OptimizedRuleResult, ...]
 
     def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serialisable dictionary."""
         return {
             "contract_version": self.contract_version,
             "contract_sha256": self.contract_sha256,
@@ -212,6 +229,11 @@ class OptimizedReport:
         }
 
     def to_json(self, path: str | Path | None = None) -> str:
+        """Serialise to JSON, optionally writing it to ``path``.
+
+        Returns:
+            The JSON text.
+        """
         s = json.dumps(
             self.to_dict(), ensure_ascii=False, indent=2, allow_nan=False
         )
@@ -221,6 +243,7 @@ class OptimizedReport:
 
     @property
     def passed(self) -> bool:
+        """Whether every rule passed; false when nothing was measured."""
         return bool(self.results) and all(
             r.status == "PASS" for r in self.results
         )

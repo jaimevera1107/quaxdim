@@ -19,6 +19,8 @@ if TYPE_CHECKING:
 
 
 class ApprovalError(ValueError):
+    """Raised when an approval request is invalid or incomplete."""
+
     pass
 
 

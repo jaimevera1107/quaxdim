@@ -14,6 +14,8 @@ from typing import Any
 
 @dataclass(frozen=True)
 class Capability:
+    """What one evaluator supports: levels, operators and field counts."""
+
     evaluator: str
     levels: frozenset[str]
     shapes: frozenset[str]
@@ -27,6 +29,8 @@ class Capability:
 
 @dataclass(frozen=True)
 class EvaluatorSpec:
+    """A capability together with its backends and dimensions."""
+
     capability: Capability
     backends: frozenset[str]
     dimension_ids: tuple[str, ...]
@@ -146,14 +150,17 @@ REGISTRY: dict[str, EvaluatorSpec] = {
 
 
 def capabilities() -> dict[str, Capability]:
+    """Return the capability of every registered evaluator, by name."""
     return {k: x.capability for k, x in REGISTRY.items()}
 
 
 def supports_backend(name: str, backend: str) -> bool:
+    """Return whether evaluator ``name`` is implemented on ``backend``."""
     return backend in REGISTRY[name].backends if name in REGISTRY else False
 
 
 def list_evaluators() -> list[dict[str, object]]:
+    """List the registered evaluators with their supported backends."""
     return [
         {
             "id": name,

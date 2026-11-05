@@ -30,12 +30,19 @@ class ContractError(ValueError):
 
 @dataclass(frozen=True)
 class Reason:
+    """A machine-readable reason code with a human-readable explanation."""
+
     code: str
     message: str
 
 
 @dataclass(frozen=True)
 class Decision:
+    """Preflight decision for one rule.
+
+    READY means the rule can be evaluated; it never means the rule passed.
+    """
+
     rule_id: str
     asset_id: str
     metric_id: str
@@ -48,6 +55,7 @@ class Decision:
     source: str = "declared"
 
     def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serialisable dictionary."""
         d = asdict(self)
         d["reasons"] = [asdict(r) for r in self.reasons]
         return d
@@ -55,14 +63,18 @@ class Decision:
 
 @dataclass(frozen=True)
 class EvaluationPlan:
+    """Preflight decisions for every rule of a contract."""
+
     decisions: tuple[Decision, ...]
     contract_version: str
     warnings: tuple[str, ...] = ()
 
     def summary(self) -> dict[str, int]:
+        """Count the decisions by status."""
         return dict(sorted(Counter(x.status for x in self.decisions).items()))
 
     def to_frame(self) -> pd.DataFrame:
+        """Return the decisions as a pandas DataFrame."""
         return pd.DataFrame(
             [
                 {
@@ -74,6 +86,7 @@ class EvaluationPlan:
         )
 
     def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serialisable dictionary."""
         return {
             "contract_version": self.contract_version,
             "summary": self.summary(),
@@ -82,6 +95,11 @@ class EvaluationPlan:
         }
 
     def to_json(self, path: str | Path | None = None) -> str:
+        """Serialise to JSON, optionally writing it to ``path``.
+
+        Returns:
+            The JSON text.
+        """
         output = json.dumps(self.to_dict(), indent=2, ensure_ascii=False)
         if path is not None:
             Path(path).write_text(output, encoding="utf-8")
@@ -336,6 +354,13 @@ class ApplicabilityPlanner:
         capabilities: Mapping[str, Capability] | None = None,
         validate_schema: bool = True,
     ):
+        """Create a planner.
+
+        Args:
+            capabilities: Evaluator capabilities; defaults to the built-in
+                registry.
+            validate_schema: Validate contracts against the JSON schema.
+        """
         self.capabilities = dict(
             BUILTIN_CAPABILITIES if capabilities is None else capabilities
         )
@@ -349,6 +374,11 @@ class ApplicabilityPlanner:
         evidence: Mapping[str, Any] | None = None,
         suggest: bool = False,
     ) -> EvaluationPlan:
+        """Check which rules of ``contract`` can be evaluated.
+
+        Nothing is executed: the plan only reports whether the declared
+        inputs are sufficient.
+        """
         contract = dict(contract)
         if self.validate_schema:
             try:
