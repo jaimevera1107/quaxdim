@@ -118,7 +118,7 @@ jobs:
               assert required in names, f"missing in wheel: {required}"
           assert not any(n.startswith("quality_dimensions/") for n in names)
           PY
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: build-dist
           path: dist/*
