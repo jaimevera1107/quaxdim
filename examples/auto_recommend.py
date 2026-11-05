@@ -1,7 +1,7 @@
 """Synthetic example: discover -> human selection -> contract -> execution."""
 from __future__ import annotations
 import pandas as pd
-from quality_dimensions import discover, evaluate_contract
+from quaxdim import discover, evaluate_contract
 
 
 def main():

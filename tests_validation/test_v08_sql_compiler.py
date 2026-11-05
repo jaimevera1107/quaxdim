@@ -1,7 +1,7 @@
 """SQL compiler arithmetic and escaping tested independently of optional DuckDB."""
 import re
 import sqlite3
-from quality_dimensions.optimized import _as_aggregate_sql, _lit, _esc
+from quaxdim.optimized import _as_aggregate_sql, _lit, _esc
 
 
 def test_sql_aggregate_results_and_safe_literals():

@@ -12,7 +12,7 @@ Scalable · Context-aware · Explainable · Auditable
 [![Python](https://img.shields.io/pypi/pyversions/quaxdim)](https://pypi.org/project/quaxdim/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-5922a7)](LICENSE)
 
-[English](README.md) · [Español](docs/README.es.md) · [Documentation](docs/) · [Contributing](CONTRIBUTING.md)
+[English](README.md) · [Español](docs/README.es.md) · [Documentation (Spanish)](docs/) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -37,9 +37,19 @@ python -m pip install quaxdim
 # Native engines only if you need them:
 python -m pip install "quaxdim[duckdb,polars]"
 python -m pip install "quaxdim[spark]"
-# Compatibility with pandas (optional):
+# pandas-based APIs (optional, see below):
 python -m pip install "quaxdim[pandas]"
 ```
+
+The core install has no pandas or numpy dependency. Discovery, contract
+approval and the native CSV engine (`discover_advanced`,
+`build_reviewed_contract`, `plan_optimized`, `evaluate_optimized` and the
+`quaxdim` CLI) work with the core install alone.
+
+The in-memory pandas APIs need the `pandas` extra: `QualitySuite`,
+`profile`, `discover`, `ContractExecutor`, `ApplicabilityPlanner` and
+`evaluate_contract`. Calling them without it raises an `ImportError` that
+names the extra to install.
 
 Python 3.10+ is declared. Compatibility of PySpark and other native engines also
 depends on their own Python, Java and platform requirements.
@@ -96,9 +106,6 @@ quaxdim native-plan data.csv --contract contract.yaml --asset dataset
 quaxdim native-execute data.csv --contract contract.yaml --asset dataset
 ```
 
-The `quality_dimensions` import path and `qd` command are retained as
-compatibility aliases for the earlier experimental package.
-
 ## Supported today versus planned
 
 | Capability | Status in 0.8.0rc1 |
@@ -129,9 +136,9 @@ Exact uniqueness checks may need large memory or an external engine.
 ## Documentation
 
 - [Spanish introduction](docs/README.es.md)
-- [Dimensions and methodology](docs/dimensions.es.md)
-- [Architecture and universal contracts](docs/architecture.es.md)
-- [Native execution and planner](docs/execution.es.md)
+- [Dimensions and methodology](docs/dimensions.es.md) (Spanish)
+- [Architecture and universal contracts](docs/architecture.es.md) (Spanish)
+- [Native execution and planner](docs/execution.es.md) (Spanish)
 - [Release and PyPI publishing](RELEASE.md)
 - [Changelog](CHANGELOG.md) and [security policy](SECURITY.md)
 

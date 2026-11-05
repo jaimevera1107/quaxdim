@@ -21,7 +21,7 @@ def read_data(path: str):
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="qd", description="Auditable data-quality contracts")
+    parser = argparse.ArgumentParser(prog="quaxdim", description="Auditable data-quality contracts")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("dimensions", help="List the conceptual dimension catalog")
     p_adv = sub.add_parser("advise", help="Out-of-core rule recommendations; no pandas materialization")
@@ -44,7 +44,7 @@ def main(argv: list[str] | None = None) -> int:
     p_draft.add_argument("data")
     p_draft.add_argument("--asset", default="dataset")
     p_draft.add_argument("--approve", action="append", required=True,
-                         help="Approved suggestion ID (repeat flag); use 'qd suggest' to obtain IDs")
+                         help="Approved suggestion ID (repeat flag); use 'quaxdim suggest' to obtain IDs")
     p_draft.add_argument("--purpose", required=True)
     p_draft.add_argument("--output", default="approved_contract.yaml")
     p_draft.add_argument("--sample-rows", type=int, default=10000)

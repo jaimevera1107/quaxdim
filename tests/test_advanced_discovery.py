@@ -2,8 +2,8 @@
 import csv
 from pathlib import Path
 import pytest
-from quality_dimensions import DiscoveryBudget, discover_advanced
-from quality_dimensions.advanced_discovery import ApproxCardinality
+from quaxdim import DiscoveryBudget, discover_advanced
+from quaxdim.advanced_discovery import ApproxCardinality
 
 
 def make_csv(tmp_path, name='data.csv', rows=None):
@@ -197,7 +197,7 @@ def test_gzip_csv_and_tsv_lexical(tmp_path):
 
 
 def test_native_type_guards_nested_and_int():
-    from quality_dimensions.advanced_discovery import _logical_from_native
+    from quaxdim.advanced_discovery import _logical_from_native
     assert _logical_from_native('int')=='integer'
     assert _logical_from_native('array<bigint>')=='nested'
     assert _logical_from_native('list[int64]')=='nested'

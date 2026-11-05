@@ -15,7 +15,7 @@ import time
 
 
 def run(rows: int, output: Path, sample_rows=1000, columns=8):
-    from quality_dimensions import DiscoveryBudget, discover_advanced
+    from quaxdim import DiscoveryBudget, discover_advanced
     import psutil
     if rows < 0 or columns < 1:
         raise ValueError('rows and columns must be positive')

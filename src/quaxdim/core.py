@@ -11,8 +11,16 @@ import re
 from typing import Callable, Any, Mapping
 from .catalog import CATALOG
 
-import pandas as pd
-import numpy as np
+from typing import TYPE_CHECKING
+
+from ._lazy import LazyModule
+
+if TYPE_CHECKING:
+    import numpy as np
+    import pandas as pd
+else:
+    np = LazyModule("numpy", extra="pandas")
+    pd = LazyModule("pandas", extra="pandas")
 import yaml
 
 

@@ -1,6 +1,6 @@
 from pathlib import Path
 import pandas as pd
-from quality_dimensions import QualitySuite, profile
+from quaxdim import QualitySuite, profile
 
 records = pd.DataFrame({
     "entity_id": ["a", "b", "c"],

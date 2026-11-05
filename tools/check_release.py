@@ -1,6 +1,7 @@
 from __future__ import annotations
 import argparse
 import hashlib
+import re
 from pathlib import Path
 import sys
 import tomllib
@@ -9,15 +10,16 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def check():
     metadata = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    ver = metadata["project"]["version"]
     assert metadata["project"]["name"] == "quaxdim", "Wrong PyPI distribution name"
+    assert "version" in metadata["project"].get("dynamic", []), "Version must be dynamic"
+    version_src = (ROOT / "src/quaxdim/_version.py").read_text(encoding="utf-8")
+    match = re.search(r'^__version__ = "([^"]+)"$', version_src, re.M)
+    assert match, "Missing __version__ in src/quaxdim/_version.py"
+    ver = match.group(1)
     assert ver and ver[0].isdigit(), "Invalid version"
-    for p in ("src/quaxdim/__init__.py", "src/quality_dimensions/__init__.py"):
-        data = (ROOT / p).read_text(encoding="utf-8")
-        assert '__version__ = "' + ver + '"' in data, f"Version mismatch: {p}"
     req = ("assets/quaxdim-logo.png", "LICENSE", "README.md", ".gitignore",
            "SECURITY.md", "CONTRIBUTING.md", "RELEASE.md",
-           "contracts/quality-contract.schema.json", "docs/architecture.es.md",
+           "src/quaxdim/schemas/quality-contract.schema.json", "docs/architecture.es.md",
            "scripts/publish_release.ps1", "scripts/verify_pypi.ps1",
            "tools/check_native_release_tests.py",
            ".github/workflows/ci.yml", ".github/workflows/release.yml",

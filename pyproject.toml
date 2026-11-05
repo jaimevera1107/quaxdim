@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quaxdim"
-version = "0.8.0rc1"
+dynamic = ["version"]
 description = "Scalable, explainable and auditable multidimensional data-quality checks"
 readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
-authors = [{name = "QuaxDim contributors"}]
+authors = [{name = "jaimevera1107"}]
 keywords = ["data quality", "data validation", "profiling", "data contracts", "spark", "duckdb", "polars"]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -23,6 +23,7 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
+  "Typing :: Typed",
   "Topic :: Database",
   "Topic :: Scientific/Engineering :: Information Analysis",
 ]
@@ -37,7 +38,6 @@ Changelog = "https://github.com/jaimevera1107/quaxdim/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 pandas = ["pandas>=2.0", "numpy>=1.24"]
-legacy = ["pandas>=2.0", "numpy>=1.24"]
 duckdb = ["duckdb>=1.1"]
 polars = ["polars>=1.0"]
 spark = ["pyspark>=3.5,<5"]
@@ -49,22 +49,40 @@ test = ["pytest>=8.0", "pandas>=2.0", "numpy>=1.24", "regex>=2024.0.0"]
 dev = ["pytest>=8.0", "pandas>=2.0", "numpy>=1.24", "build>=1.2", "twine>=5.0"]
 
 [project.scripts]
-quaxdim = "quality_dimensions.cli:main"
-qd = "quality_dimensions.cli:main"
+quaxdim = "quaxdim.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["quality_dimensions*", "quaxdim*"]
+include = ["quaxdim*"]
 
 [tool.setuptools.package-data]
-quality_dimensions = ["schemas/*.json"]
+quaxdim = ["schemas/*.json", "py.typed"]
+
+[tool.setuptools.dynamic]
+version = {attr = "quaxdim._version.__version__"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "tests_validation", "tests_public"]
 addopts = "-ra"
 
 [tool.coverage.run]
-source = ["quality_dimensions", "quaxdim"]
+source = ["quaxdim"]
 
 [tool.coverage.report]
 show_missing = true
+
+[tool.ruff]
+# PEP 8 maximum line length for code.
+line-length = 79
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "N", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src"]
+warn_unused_ignores = true
+check_untyped_defs = true
+ignore_missing_imports = true

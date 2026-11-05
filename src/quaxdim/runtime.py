@@ -5,7 +5,14 @@ rejected to prevent cross-engine coercion and incorrect relationships.
 """
 from __future__ import annotations
 from typing import Any, Mapping
-import pandas as pd
+from typing import TYPE_CHECKING
+
+from ._lazy import LazyModule
+
+if TYPE_CHECKING:
+    import pandas as pd
+else:
+    pd = LazyModule("pandas", extra="pandas")
 
 from .execution import ContractExecutor
 from .spark_backend import SparkContractExecutor, SparkBackendUnavailable, _spark_modules

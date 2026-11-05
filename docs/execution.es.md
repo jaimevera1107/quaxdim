@@ -18,7 +18,7 @@ El motor no intenta reproducir todas las semánticas del ejecutor heredado de pa
 ### Ejemplo mínimo, sin pandas
 
 ```python
-from quality_dimensions import discover_advanced, DiscoveryBudget, build_reviewed_contract, plan_optimized, evaluate_optimized
+from quaxdim import discover_advanced, DiscoveryBudget, build_reviewed_contract, plan_optimized, evaluate_optimized
 
 source = 'datos.csv'
 r = discover_advanced(source, budget=DiscoveryBudget(mode='balanced'))
@@ -36,9 +36,9 @@ print(report.to_json('evaluacion.json'))
 ### Terminal
 
 ```powershell
-qd advise "D:\\datos\\archivo.csv" --asset dataset --mode balanced --output recomendaciones.json
-qd native-plan "D:\\datos\\archivo.csv" --asset dataset --contract contrato.json --output plan.json
-qd native-execute "D:\\datos\\archivo.csv" --asset dataset --contract contrato.json --output medicion.json
+quaxdim advise "D:\\datos\\archivo.csv" --asset dataset --mode balanced --output recomendaciones.json
+quaxdim native-plan "D:\\datos\\archivo.csv" --asset dataset --contract contrato.json --output plan.json
+quaxdim native-execute "D:\\datos\\archivo.csv" --asset dataset --contract contrato.json --output medicion.json
 ```
 
 ## Matriz de motor y controles (v0.8 experimental)

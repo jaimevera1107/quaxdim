@@ -5,8 +5,8 @@ import json
 import pandas as pd
 import pytest
 
-from quality_dimensions import discover, evaluate_contract, list_evaluators
-from quality_dimensions.applicability import ApplicabilityPlanner
+from quaxdim import discover, evaluate_contract, list_evaluators
+from quaxdim.applicability import ApplicabilityPlanner
 
 
 def _pick(report, evaluator=None, kind='rule', field=None):
@@ -104,7 +104,7 @@ def test_boolean_and_integer_domain_are_not_equal():
     c['rules'][0]['expectation']={'operator':'in_set','values':[1]}
     result=evaluate_contract(c,data={'dataset':df})
     assert result.results[0].status == 'UNSUPPORTED'  # mixed semantic type must not be coerced
-    from quality_dimensions.pandas_evaluators import evaluate_pandas_extra
+    from quaxdim.pandas_evaluators import evaluate_pandas_extra
     import numpy as np
     out, _ = evaluate_pandas_extra('builtin.allowed_values', df, {'STATUS':{}},
         {'target':{'fields':['STATUS']},'expectation':{'operator':'in_set','values':[1]}},

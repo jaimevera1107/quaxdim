@@ -2,15 +2,15 @@
 import json
 from pathlib import Path
 import pytest
-from quality_dimensions import list_dimensions, list_evaluators, DiscoveryBudget, discover_advanced
+from quaxdim import list_dimensions, list_evaluators, DiscoveryBudget, discover_advanced
 
 ROOT=Path(__file__).resolve().parents[1]
 
 
 def test_bundled_contract_is_json_schema_valid():
     jsonschema = pytest.importorskip('jsonschema')
-    schema = json.loads((ROOT/'contracts/quality-contract.schema.json').read_text(encoding='utf-8'))
-    data = json.loads((ROOT/'contracts/contrato_calidad.json').read_text(encoding='utf-8'))
+    schema = json.loads((ROOT/'src/quaxdim/schemas/quality-contract.schema.json').read_text(encoding='utf-8'))
+    data = json.loads((ROOT/'contracts/quality_contract.json').read_text(encoding='utf-8'))
     jsonschema.Draft202012Validator.check_schema(schema)
     jsonschema.Draft202012Validator(schema).validate(data)
 
@@ -47,12 +47,12 @@ def test_unapproved_report_does_not_expose_configuration(tmp_path):
 
 def test_advanced_discovery_top_level_import_is_lazy():
     import os,subprocess,sys
-    code = ('import sys; import quality_dimensions; '
+    code = ('import sys; import quaxdim; '
             'assert "pandas" not in sys.modules; '
             'assert "pyspark" not in sys.modules; '
             'assert "polars" not in sys.modules; '
             'assert "duckdb" not in sys.modules; '
-            'from quality_dimensions import DiscoveryBudget, discover_advanced; '
+            'from quaxdim import DiscoveryBudget, discover_advanced; '
             'assert "pandas" not in sys.modules')
     env = os.environ.copy()
     env['PYTHONPATH'] = str(ROOT / 'src')

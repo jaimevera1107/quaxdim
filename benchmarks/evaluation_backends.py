@@ -13,7 +13,7 @@ import os
 from pathlib import Path
 import tempfile
 import time
-from quality_dimensions import evaluate_optimized
+from quaxdim import evaluate_optimized
 
 
 def contract():
@@ -67,7 +67,7 @@ def run(engine,n,output):
             elif engine=='spark':
                 from pyspark.sql import SparkSession
                 from pyspark.sql.types import StructType,StructField,StringType
-                spark=(SparkSession.builder.master('local[2]').appName('qd-v08-benchmark')
+                spark=(SparkSession.builder.master('local[2]').appName('quaxdim-benchmark')
                        .config('spark.ui.enabled','false').getOrCreate())
                 schema=StructType([StructField('CODE_ID',StringType()),StructField('STATUS',StringType())])
                 src=spark.read.option('header','true').schema(schema).csv(str(source_file))

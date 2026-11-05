@@ -1,12 +1,12 @@
 """Small native Spark run. Requires: pip install -e '.[spark]' and Java 17+."""
 from datetime import date
 from pathlib import Path
-from quality_dimensions import SparkContractExecutor, load_contract
+from quaxdim import SparkContractExecutor, load_contract
 from pyspark.sql import SparkSession
 from pyspark.sql import types as T
 
 ROOT = Path(__file__).resolve().parents[1]
-contract = load_contract(ROOT / 'contracts' / 'contrato_calidad.json')
+contract = load_contract(ROOT / 'contracts' / 'quality_contract.json')
 # Spark SQL lower != Python Unicode casefold. The demo uses exact, trimmed
 # tokens deliberately; do not apply this change to production data implicitly.
 for field in contract['assets'][0]['fields']:

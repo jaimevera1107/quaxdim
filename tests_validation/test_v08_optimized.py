@@ -3,7 +3,7 @@ import csv
 import json
 from pathlib import Path
 import pytest
-from quality_dimensions import (discover_advanced, DiscoveryBudget,
+from quaxdim import (discover_advanced, DiscoveryBudget,
     build_reviewed_contract, ApprovalError, evaluate_optimized, plan_optimized)
 
 
@@ -72,7 +72,7 @@ def test_approval_is_explicit_and_schema_valid(tmp_path):
     with pytest.raises(ApprovalError):build_reviewed_contract(report,approve=[q[0].id],purpose='Audit',thresholds={})
     contract,trail=build_reviewed_contract(report,approve=[q[0].id],purpose='Audit',thresholds={q[0].id:1.0})
     import jsonschema
-    schema=json.loads((Path(__file__).parents[1]/'contracts'/'quality-contract.schema.json').read_text())
+    schema=json.loads((Path(__file__).parents[1]/'src'/'quaxdim'/'schemas'/'quality-contract.schema.json').read_text())
     jsonschema.validate(contract,schema)
     assert not trail['automatic_approval']
     out=evaluate_optimized(contract,data={'dataset':p})

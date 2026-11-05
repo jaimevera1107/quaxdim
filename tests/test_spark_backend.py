@@ -9,13 +9,13 @@ from pathlib import Path
 import json
 import pytest
 
-from quality_dimensions import SparkContractExecutor
+from quaxdim import SparkContractExecutor
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def _contract():
-    c = json.loads((ROOT / 'contracts/contrato_calidad.json').read_text(encoding='utf-8'))
+    c = json.loads((ROOT / 'contracts/quality_contract.json').read_text(encoding='utf-8'))
     for f in c['assets'][0]['fields']:
         if f['name'] == 'OCU_ID':
             f['missing_policy']['normalization'] = 'none'
@@ -137,7 +137,7 @@ def test_native_spark_allowed_values_and_range(spark):
 
 
 def test_spark_schema_and_aggregated_discovery(spark):
-    from quality_dimensions import discover
+    from quaxdim import discover
     df = _data(spark)
     r = discover(df, asset_id='mercado_laboral')
     assert r.backend == 'spark' and r.row_count is None

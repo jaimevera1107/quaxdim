@@ -1,7 +1,14 @@
 """Non-prescriptive profiling. Profiles are observations, not quality judgments."""
 from __future__ import annotations
 
-import pandas as pd
+from typing import TYPE_CHECKING
+
+from ._lazy import LazyModule
+
+if TYPE_CHECKING:
+    import pandas as pd
+else:
+    pd = LazyModule("pandas", extra="pandas")
 
 
 def profile(data: pd.DataFrame, *, count_distinct: bool = True) -> pd.DataFrame:

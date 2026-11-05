@@ -1,10 +1,10 @@
 """Reproducible v0.4 execution, without reading any proprietary sources."""
 from pathlib import Path
 import pandas as pd
-from quality_dimensions import ContractExecutor, load_contract
+from quaxdim import ContractExecutor, load_contract
 
 ROOT = Path(__file__).resolve().parents[1]
-contract = load_contract(ROOT / "contracts" / "contrato_calidad.yaml")
+contract = load_contract(ROOT / "contracts" / "quality_contract.yaml")
 data = pd.DataFrame({
     "YEAR": [2025, 2025, 2025],
     "QUARTER": [1, 1, 1],

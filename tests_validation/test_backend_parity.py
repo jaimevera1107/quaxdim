@@ -7,7 +7,7 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 import pytest
-from quality_dimensions import discover_advanced, DiscoveryBudget
+from quaxdim import discover_advanced, DiscoveryBudget
 
 
 def test_duckdb_polars_csv_basic_parity(tmp_path):

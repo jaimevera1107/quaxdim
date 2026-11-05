@@ -1,8 +1,8 @@
 import pandas as pd
 import pytest
-from quality_dimensions import evaluate_contract, SparkContractExecutor
-from quality_dimensions.runtime import _spark_modules
-from quality_dimensions.spark_backend import SparkBackendUnavailable
+from quaxdim import evaluate_contract, SparkContractExecutor
+from quaxdim.runtime import _spark_modules
+from quaxdim.spark_backend import SparkBackendUnavailable
 
 
 def test_dispatch_rejects_empty_or_unknown():
@@ -16,7 +16,7 @@ def test_dispatch_routes_pandas(monkeypatch):
     class DummyExecutor:
         def run(self, *args, **kwargs):
             return 'pandas-route'
-    monkeypatch.setattr('quality_dimensions.runtime.ContractExecutor', DummyExecutor)
+    monkeypatch.setattr('quaxdim.runtime.ContractExecutor', DummyExecutor)
     assert evaluate_contract({},data={'x':pd.DataFrame({'a':[1]})}) == 'pandas-route'
 
 

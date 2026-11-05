@@ -11,8 +11,16 @@ from numbers import Real
 from typing import Any, Mapping
 import json
 import re
-import numpy as np
-import pandas as pd
+from typing import TYPE_CHECKING
+
+from ._lazy import LazyModule
+
+if TYPE_CHECKING:
+    import numpy as np
+    import pandas as pd
+else:
+    np = LazyModule("numpy", extra="pandas")
+    pd = LazyModule("pandas", extra="pandas")
 
 from .evaluator_registry import REGISTRY
 

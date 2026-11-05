@@ -1,6 +1,6 @@
 """Run: python examples/advanced_recommendation.py ruta/datos.csv"""
 import sys
-from quality_dimensions import discover_advanced, DiscoveryBudget
+from quaxdim import discover_advanced, DiscoveryBudget
 
 if len(sys.argv)<2:
     raise SystemExit('Uso: python examples/advanced_recommendation.py datos.csv')

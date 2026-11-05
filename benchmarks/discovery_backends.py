@@ -16,7 +16,7 @@ import time
 
 def bench(engine, rows, output):
     import psutil
-    from quality_dimensions import DiscoveryBudget, discover_advanced
+    from quaxdim import DiscoveryBudget, discover_advanced
     proc=psutil.Process(os.getpid())
     rss=[proc.memory_info().rss]
     stop=threading.Event()
@@ -52,7 +52,7 @@ def bench(engine, rows, output):
                 source=pl.scan_csv(p, infer_schema_length=0)
             elif engine=='spark':
                 from pyspark.sql import SparkSession,functions as F
-                spark=(SparkSession.builder.master('local[2]').appName('qd-benchmark')
+                spark=(SparkSession.builder.master('local[2]').appName('quaxdim-benchmark')
                        .config('spark.ui.enabled','false').getOrCreate())
                 source=spark.range(rows).select(
                     F.col('id').alias('ROW_ID'),(F.col('id')%600).alias('OCUPACION_ID'),

@@ -1,6 +1,6 @@
 import pandas as pd
 import pytest
-from quality_dimensions import Check, QualitySuite, list_dimensions, profile
+from quaxdim import Check, QualitySuite, list_dimensions, profile
 
 
 def outcome(frame, **kwargs):

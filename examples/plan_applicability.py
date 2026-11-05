@@ -1,10 +1,10 @@
 """Run from repository root: python examples/plan_applicability.py"""
 from pathlib import Path
 import pandas as pd
-from quality_dimensions import ApplicabilityPlanner, load_contract
+from quaxdim import ApplicabilityPlanner, load_contract
 
 root = Path(__file__).resolve().parents[1]
-contract = load_contract(root / "contracts" / "contrato_calidad.yaml")
+contract = load_contract(root / "contracts" / "quality_contract.yaml")
 data = pd.DataFrame({
     "YEAR": [2025, 2025, 2025],
     "QUARTER": [1, 1, 1],

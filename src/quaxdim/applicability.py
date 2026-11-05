@@ -14,7 +14,14 @@ from typing import Any, Mapping
 import json
 import math
 
-import pandas as pd
+from typing import TYPE_CHECKING
+
+from ._lazy import LazyModule
+
+if TYPE_CHECKING:
+    import pandas as pd
+else:
+    pd = LazyModule("pandas", extra="pandas")
 
 
 class ContractError(ValueError):
@@ -278,7 +285,7 @@ class ApplicabilityPlanner:
         if self.validate_schema:
             try:
                 import jsonschema
-                schema = json.loads(files("quality_dimensions").joinpath("schemas", "quality-contract.schema.json").read_text(encoding="utf-8"))
+                schema = json.loads(files("quaxdim").joinpath("schemas", "quality-contract.schema.json").read_text(encoding="utf-8"))
                 jsonschema.Draft202012Validator(schema, format_checker=jsonschema.FormatChecker()).validate(contract)
             except ImportError as exc:
                 raise ContractError("JSON Schema validation requires jsonschema>=4.18") from exc

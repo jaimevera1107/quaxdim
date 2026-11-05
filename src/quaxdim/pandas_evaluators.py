@@ -7,8 +7,16 @@ from decimal import Decimal
 from numbers import Real
 from typing import Any, Mapping
 import math
-import numpy as np
-import pandas as pd
+from typing import TYPE_CHECKING
+
+from ._lazy import LazyModule
+
+if TYPE_CHECKING:
+    import numpy as np
+    import pandas as pd
+else:
+    np = LazyModule("numpy", extra="pandas")
+    pd = LazyModule("pandas", extra="pandas")
 
 EXTRA_PANDAS_EVALUATORS = frozenset({
     "builtin.allowed_values", "builtin.value_range", "builtin.regex_fullmatch",

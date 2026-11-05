@@ -9,7 +9,7 @@ import subprocess
 import sys
 
 import pytest
-from quality_dimensions import DiscoveryBudget, discover_advanced, list_evaluators
+from quaxdim import DiscoveryBudget, discover_advanced, list_evaluators
 
 
 def write_csv(path: Path, rows, header=('CODIGO_ID', 'CATEGORIA', 'ANIO', 'VALOR', 'FECHA_INICIO', 'FECHA_FIN'), sep=','):
@@ -101,7 +101,7 @@ def test_cli_advise_produces_json(tmp_path):
     p = write_csv(tmp_path / 'input.csv', [('001', 'A', '2025', '1', '2025-01-01', '2025-01-02')])
     output = tmp_path / 'out.json'
     result = subprocess.run(
-        [sys.executable, '-m', 'quality_dimensions.cli', 'advise', str(p), '--asset', 'input',
+        [sys.executable, '-m', 'quaxdim.cli', 'advise', str(p), '--asset', 'input',
          '--mode', 'deep', '--output', str(output)],
         capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=90,
     )

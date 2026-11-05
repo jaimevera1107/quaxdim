@@ -6,7 +6,7 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 import pytest
-from quality_dimensions import DiscoveryBudget, discover_advanced
+from quaxdim import DiscoveryBudget, discover_advanced
 
 
 def _csv(tmp_path):

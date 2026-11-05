@@ -1,7 +1,7 @@
 """Regresiones para máscaras de nulos y presupuestos compatibles con pandas 3."""
 from __future__ import annotations
 import pandas as pd
-from quality_dimensions.execution import _is_missing
+from quaxdim.execution import _is_missing
 
 
 def test_missing_mask_is_independently_writable():

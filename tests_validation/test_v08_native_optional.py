@@ -4,7 +4,7 @@ No conversion to pandas; all comparisons operate on small synthetic fixtures.
 import csv
 from pathlib import Path
 import pytest
-from quality_dimensions import evaluate_optimized, discover_advanced, DiscoveryBudget
+from quaxdim import evaluate_optimized, discover_advanced, DiscoveryBudget
 from test_v08_optimized import _contract, _csv
 
 
@@ -53,7 +53,7 @@ def test_v08_spark_native_parity(tmp_path):
     pytest.importorskip('pyspark')
     from pyspark.sql import SparkSession
     try:
-        spark=(SparkSession.builder.master('local[2]').appName('qd-v08-parity')
+        spark=(SparkSession.builder.master('local[2]').appName('quaxdim-parity')
                .config('spark.ui.enabled','false').getOrCreate())
     except Exception as ex:
         pytest.skip(f'Spark unavailable: {type(ex).__name__}: {ex}')
@@ -101,7 +101,7 @@ def test_v08_polars_parquet_numeric(tmp_path):
 def test_v08_spark_parquet_numeric(tmp_path):
     pytest.importorskip('pyspark')
     from pyspark.sql import SparkSession, functions as F
-    try:spark=SparkSession.builder.master('local[2]').appName('qd-v08-numeric').config('spark.ui.enabled','false').getOrCreate()
+    try:spark=SparkSession.builder.master('local[2]').appName('quaxdim-numeric').config('spark.ui.enabled','false').getOrCreate()
     except Exception as ex:pytest.skip(f'Spark unavailable: {ex}')
     try:
         df=spark.range(8).select(F.col('id').alias('QUANTITY'),(F.col('id')-1).alias('LIMIT_VALUE'))

@@ -7,14 +7,14 @@ import json
 import pandas as pd
 import pytest
 
-from quality_dimensions.applicability import ApplicabilityPlanner
-from quality_dimensions.execution import ContractExecutor, EvaluationError, _failure_status, _predicates
+from quaxdim.applicability import ApplicabilityPlanner
+from quaxdim.execution import ContractExecutor, EvaluationError, _failure_status, _predicates
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def contract():
-    return json.loads((ROOT / "contracts" / "contrato_calidad.json").read_text(encoding="utf-8"))
+    return json.loads((ROOT / "contracts" / "quality_contract.json").read_text(encoding="utf-8"))
 
 
 def sample():

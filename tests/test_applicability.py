@@ -7,13 +7,13 @@ import json
 import pytest
 import pandas as pd
 
-from quality_dimensions.applicability import ApplicabilityPlanner, ContractError, load_contract, Capability
+from quaxdim.applicability import ApplicabilityPlanner, ContractError, load_contract, Capability
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def sample_contract():
-    return json.loads((ROOT / "contracts" / "contrato_calidad.json").read_text(encoding="utf-8"))
+    return json.loads((ROOT / "contracts" / "quality_contract.json").read_text(encoding="utf-8"))
 
 
 def sample_frame():
@@ -193,7 +193,7 @@ def test_json_report_roundtrip(tmp_path):
 
 
 def test_load_contract_formats():
-    assert load_contract(ROOT/'contracts'/'contrato_calidad.yaml')==load_contract(ROOT/'contracts'/'contrato_calidad.json')
+    assert load_contract(ROOT/'contracts'/'quality_contract.yaml')==load_contract(ROOT/'contracts'/'quality_contract.json')
 
 
 def test_unregistered_shape_honored():
@@ -256,12 +256,12 @@ def test_present_null_marker_never_guessed_as_null():
 
 
 def test_cli_plan_json(tmp_path):
-    from quality_dimensions.cli import main
+    from quaxdim.cli import main
     frame=sample_frame().drop(columns=["FECHA_EVENTO", "FECHA_CAPTURA"])
     # No timestamps -> NEEDS_CONTEXT, not a successful evaluation.
     path=tmp_path/'data.csv';out=tmp_path/'plan.json'
     frame.to_csv(path,index=False)
-    rc=main(["plan", str(path), "--contract", str(ROOT/'contracts'/'contrato_calidad.yaml'),
+    rc=main(["plan", str(path), "--contract", str(ROOT/'contracts'/'quality_contract.yaml'),
              "--asset", "mercado_laboral", "--output", str(out)])
     assert rc == 1
     assert json.loads(out.read_text(encoding="utf-8"))["contract_version"]=="0.2.0"
