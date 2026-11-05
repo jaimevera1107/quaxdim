@@ -22,9 +22,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 BLOCK_OPTIONAL = (
-    "import sys\n"
-    "sys.modules['pandas'] = None\n"
-    "sys.modules['numpy'] = None\n"
+    "import sys\nsys.modules['pandas'] = None\nsys.modules['numpy'] = None\n"
 )
 CSV_TEXT = "ID,name,age\n001,ana,30\n002,,41\n003,luis,\n004,eva,22\n"
 

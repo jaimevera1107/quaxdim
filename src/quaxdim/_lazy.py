@@ -33,7 +33,7 @@ class LazyModule:
             except ImportError as exc:
                 raise ImportError(
                     f"This feature requires {self._module_name!r}. "
-                    f"Install it with: pip install \"quaxdim[{self._extra}]\""
+                    f'Install it with: pip install "quaxdim[{self._extra}]"'
                 ) from exc
         return self._module
 
