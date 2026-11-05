@@ -1,0 +1,205 @@
+{
+  "contract_version": "0.2.0",
+  "contract_sha256": "c48ea067d9cbb851efbfabbde28fdeea3fb08e8c9efc7f2f4c9a841f9d2e76ca",
+  "generated_at": "2026-11-05T15:20:49.127128+00:00",
+  "all_passed": false,
+  "plan": {
+    "contract_version": "0.2.0",
+    "summary": {
+      "READY": 4
+    },
+    "warnings": [],
+    "decisions": [
+      {
+        "rule_id": "OCU_ID_required",
+        "asset_id": "mercado_laboral",
+        "metric_id": "presence_rate",
+        "evaluator": "builtin.presence",
+        "status": "READY",
+        "reasons": [],
+        "eligible_rows": 3,
+        "total_rows": 3,
+        "dimension_ids": [
+          "completeness"
+        ],
+        "source": "declared"
+      },
+      {
+        "rule_id": "OCU_ID_2025_catalog",
+        "asset_id": "mercado_laboral",
+        "metric_id": "catalog_conformance",
+        "evaluator": "reference.lookup_temporal",
+        "status": "READY",
+        "reasons": [],
+        "eligible_rows": 3,
+        "total_rows": 3,
+        "dimension_ids": [
+          "validity"
+        ],
+        "source": "declared"
+      },
+      {
+        "rule_id": "grain_unique",
+        "asset_id": "mercado_laboral",
+        "metric_id": "grain_uniqueness_rate",
+        "evaluator": "builtin.composite_uniqueness",
+        "status": "READY",
+        "reasons": [],
+        "eligible_rows": 3,
+        "total_rows": 3,
+        "dimension_ids": [
+          "uniqueness"
+        ],
+        "source": "declared"
+      },
+      {
+        "rule_id": "capture_within_7_days",
+        "asset_id": "mercado_laboral",
+        "metric_id": "within_delay_rate",
+        "evaluator": "builtin.max_delay",
+        "status": "READY",
+        "reasons": [],
+        "eligible_rows": 3,
+        "total_rows": 3,
+        "dimension_ids": [
+          "timeliness"
+        ],
+        "source": "declared"
+      }
+    ]
+  },
+  "results": [
+    {
+      "rule_id": "OCU_ID_required",
+      "asset_id": "mercado_laboral",
+      "metric_id": "presence_rate",
+      "dimension_ids": [
+        "completeness"
+      ],
+      "status": "FAIL",
+      "planner_status": "READY",
+      "total_rows": 3,
+      "scoped_rows": 3,
+      "excluded_rows": 0,
+      "unit": "value",
+      "eligible_units": 3,
+      "passed_units": 2,
+      "failed_units": 1,
+      "indeterminate_units": 0,
+      "excluded_units": 0,
+      "measured_rate": 0.6666666666666666,
+      "lower_rate": 0.6666666666666666,
+      "upper_rate": 0.6666666666666666,
+      "assessment_coverage": 1.0,
+      "threshold": {
+        "operator": "gte",
+        "value": 0.98
+      },
+      "severity": "high",
+      "failure_action": "report",
+      "sample_failed_positions": [
+        1
+      ],
+      "sample_indeterminate_positions": [],
+      "reasons": []
+    },
+    {
+      "rule_id": "OCU_ID_2025_catalog",
+      "asset_id": "mercado_laboral",
+      "metric_id": "catalog_conformance",
+      "dimension_ids": [
+        "validity"
+      ],
+      "status": "PASS",
+      "planner_status": "READY",
+      "total_rows": 3,
+      "scoped_rows": 3,
+      "excluded_rows": 0,
+      "unit": "value",
+      "eligible_units": 2,
+      "passed_units": 2,
+      "failed_units": 0,
+      "indeterminate_units": 0,
+      "excluded_units": 1,
+      "measured_rate": 1.0,
+      "lower_rate": 1.0,
+      "upper_rate": 1.0,
+      "assessment_coverage": 1.0,
+      "threshold": {
+        "operator": "gte",
+        "value": 1.0
+      },
+      "severity": "high",
+      "failure_action": "report",
+      "sample_failed_positions": [],
+      "sample_indeterminate_positions": [],
+      "reasons": []
+    },
+    {
+      "rule_id": "grain_unique",
+      "asset_id": "mercado_laboral",
+      "metric_id": "grain_uniqueness_rate",
+      "dimension_ids": [
+        "uniqueness"
+      ],
+      "status": "INDETERMINATE",
+      "planner_status": "READY",
+      "total_rows": 3,
+      "scoped_rows": 3,
+      "excluded_rows": 0,
+      "unit": "record",
+      "eligible_units": 3,
+      "passed_units": 2,
+      "failed_units": 0,
+      "indeterminate_units": 1,
+      "excluded_units": 0,
+      "measured_rate": 1.0,
+      "lower_rate": 0.6666666666666666,
+      "upper_rate": 1.0,
+      "assessment_coverage": 0.6666666666666666,
+      "threshold": {
+        "operator": "eq",
+        "value": 1.0
+      },
+      "severity": "critical",
+      "failure_action": "report",
+      "sample_failed_positions": [],
+      "sample_indeterminate_positions": [
+        1
+      ],
+      "reasons": []
+    },
+    {
+      "rule_id": "capture_within_7_days",
+      "asset_id": "mercado_laboral",
+      "metric_id": "within_delay_rate",
+      "dimension_ids": [
+        "timeliness"
+      ],
+      "status": "PASS",
+      "planner_status": "READY",
+      "total_rows": 3,
+      "scoped_rows": 3,
+      "excluded_rows": 0,
+      "unit": "record",
+      "eligible_units": 3,
+      "passed_units": 3,
+      "failed_units": 0,
+      "indeterminate_units": 0,
+      "excluded_units": 0,
+      "measured_rate": 1.0,
+      "lower_rate": 1.0,
+      "upper_rate": 1.0,
+      "assessment_coverage": 1.0,
+      "threshold": {
+        "operator": "gte",
+        "value": 0.95
+      },
+      "severity": "medium",
+      "failure_action": "report",
+      "sample_failed_positions": [],
+      "sample_indeterminate_positions": [],
+      "reasons": []
+    }
+  ]
+}

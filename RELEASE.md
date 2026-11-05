@@ -14,7 +14,7 @@ PyPI using a short-lived OIDC token after approval of the protected `pypi` envir
 
 ## Release
 
-1. Update version using `python tools/bump_version.py 0.8.0rc2` (example), then update `CHANGELOG.md`.
+1. Update the version (only in `src/quaxdim/_version.py`) using `python tools/bump_version.py 0.8.0rc2` (example), then update `CHANGELOG.md`.
 2. Run `python -m pip install -e ".[test]"` and `python -m pytest -q tests tests_validation tests_public`.
 3. Run `python tools/check_release.py`, then commit and push to `main`.
 4. Verify CI passed for the exact commit.

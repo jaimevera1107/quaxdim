@@ -5,7 +5,8 @@ recursive-include examples *.py *.yaml *.json
 recursive-include tests *.py
 recursive-include tests_validation *.py
 recursive-include tests_public *.py
-recursive-include src/quality_dimensions/schemas *.json
+recursive-include src/quaxdim/schemas *.json
+include src/quaxdim/py.typed
 prune .github
 prune scripts
 prune benchmarks

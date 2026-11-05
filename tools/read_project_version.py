@@ -1,5 +1,17 @@
+"""Print the package version (single source: ``src/quaxdim/_version.py``)."""
+
+import re
 from pathlib import Path
-import tomllib
-root = Path(__file__).resolve().parents[1]
-with (root / "pyproject.toml").open("rb") as file:
-    print(tomllib.load(file)["project"]["version"])
+
+VERSION_FILE = (
+    Path(__file__).resolve().parents[1] / "src" / "quaxdim" / "_version.py"
+)
+
+match = re.search(
+    r'^__version__ = "([^"]+)"$',
+    VERSION_FILE.read_text(encoding="utf-8"),
+    re.MULTILINE,
+)
+if match is None:
+    raise SystemExit(f"No __version__ found in {VERSION_FILE}")
+print(match.group(1))

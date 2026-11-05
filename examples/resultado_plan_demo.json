@@ -1,0 +1,233 @@
+{
+  "contract_version": "0.2.0",
+  "summary": {
+    "NEEDS_EVIDENCE": 1,
+    "READY": 3,
+    "RECOMMENDED": 7
+  },
+  "warnings": [],
+  "decisions": [
+    {
+      "rule_id": "OCU_ID_required",
+      "asset_id": "mercado_laboral",
+      "metric_id": "presence_rate",
+      "evaluator": "builtin.presence",
+      "status": "READY",
+      "reasons": [],
+      "eligible_rows": 3,
+      "total_rows": 3,
+      "dimension_ids": [
+        "completeness"
+      ],
+      "source": "declared"
+    },
+    {
+      "rule_id": "OCU_ID_2025_catalog",
+      "asset_id": "mercado_laboral",
+      "metric_id": "catalog_conformance",
+      "evaluator": "reference.lookup_temporal",
+      "status": "NEEDS_EVIDENCE",
+      "reasons": [
+        {
+          "code": "REFERENCE_UNRESOLVED",
+          "message": "Reference ocupaciones_2025 is described but content is not bound/verified"
+        }
+      ],
+      "eligible_rows": 3,
+      "total_rows": 3,
+      "dimension_ids": [
+        "validity"
+      ],
+      "source": "declared"
+    },
+    {
+      "rule_id": "grain_unique",
+      "asset_id": "mercado_laboral",
+      "metric_id": "grain_uniqueness_rate",
+      "evaluator": "builtin.composite_uniqueness",
+      "status": "READY",
+      "reasons": [],
+      "eligible_rows": 3,
+      "total_rows": 3,
+      "dimension_ids": [
+        "uniqueness"
+      ],
+      "source": "declared"
+    },
+    {
+      "rule_id": "capture_within_7_days",
+      "asset_id": "mercado_laboral",
+      "metric_id": "within_delay_rate",
+      "evaluator": "builtin.max_delay",
+      "status": "READY",
+      "reasons": [],
+      "eligible_rows": 3,
+      "total_rows": 3,
+      "dimension_ids": [
+        "timeliness"
+      ],
+      "source": "declared"
+    },
+    {
+      "rule_id": "suggest_df28c8a6bfb3",
+      "asset_id": "mercado_laboral",
+      "metric_id": "unapproved",
+      "evaluator": "builtin.presence",
+      "status": "RECOMMENDED",
+      "reasons": [
+        {
+          "code": "USER_REVIEW_REQUIRED",
+          "message": "Comprobar completitud de YEAR"
+        },
+        {
+          "code": "HEURISTIC_ONLY",
+          "message": "Ausencias físicas observadas; obligatoriedad no inferida."
+        }
+      ],
+      "eligible_rows": null,
+      "total_rows": 3,
+      "dimension_ids": [
+        "completeness"
+      ],
+      "source": "suggestion"
+    },
+    {
+      "rule_id": "suggest_1fa7773e8250",
+      "asset_id": "mercado_laboral",
+      "metric_id": "unapproved",
+      "evaluator": "builtin.presence",
+      "status": "RECOMMENDED",
+      "reasons": [
+        {
+          "code": "USER_REVIEW_REQUIRED",
+          "message": "Comprobar completitud de QUARTER"
+        },
+        {
+          "code": "HEURISTIC_ONLY",
+          "message": "Ausencias físicas observadas; obligatoriedad no inferida."
+        }
+      ],
+      "eligible_rows": null,
+      "total_rows": 3,
+      "dimension_ids": [
+        "completeness"
+      ],
+      "source": "suggestion"
+    },
+    {
+      "rule_id": "suggest_31686efc1a54",
+      "asset_id": "mercado_laboral",
+      "metric_id": "unapproved",
+      "evaluator": "builtin.presence",
+      "status": "RECOMMENDED",
+      "reasons": [
+        {
+          "code": "USER_REVIEW_REQUIRED",
+          "message": "Comprobar completitud de MPO_ID"
+        },
+        {
+          "code": "HEURISTIC_ONLY",
+          "message": "Ausencias físicas observadas; obligatoriedad no inferida."
+        }
+      ],
+      "eligible_rows": null,
+      "total_rows": 3,
+      "dimension_ids": [
+        "completeness"
+      ],
+      "source": "suggestion"
+    },
+    {
+      "rule_id": "suggest_3b0b1477308c",
+      "asset_id": "mercado_laboral",
+      "metric_id": "unapproved",
+      "evaluator": "builtin.regex_fullmatch",
+      "status": "RECOMMENDED",
+      "reasons": [
+        {
+          "code": "USER_REVIEW_REQUIRED",
+          "message": "Confirmar patrón de código de MPO_ID"
+        },
+        {
+          "code": "HEURISTIC_ONLY",
+          "message": "La muestra de códigos tiene longitud y caracteres uniformes."
+        }
+      ],
+      "eligible_rows": null,
+      "total_rows": 3,
+      "dimension_ids": [
+        "validity"
+      ],
+      "source": "suggestion"
+    },
+    {
+      "rule_id": "suggest_c480b6afeaea",
+      "asset_id": "mercado_laboral",
+      "metric_id": "unapproved",
+      "evaluator": "builtin.presence",
+      "status": "RECOMMENDED",
+      "reasons": [
+        {
+          "code": "USER_REVIEW_REQUIRED",
+          "message": "Comprobar completitud de SUELDO_MES"
+        },
+        {
+          "code": "HEURISTIC_ONLY",
+          "message": "Ausencias físicas observadas; obligatoriedad no inferida."
+        }
+      ],
+      "eligible_rows": null,
+      "total_rows": 3,
+      "dimension_ids": [
+        "completeness"
+      ],
+      "source": "suggestion"
+    },
+    {
+      "rule_id": "suggest_75ad6cc4d25d",
+      "asset_id": "mercado_laboral",
+      "metric_id": "unapproved",
+      "evaluator": "builtin.presence",
+      "status": "RECOMMENDED",
+      "reasons": [
+        {
+          "code": "USER_REVIEW_REQUIRED",
+          "message": "Comprobar completitud de FECHA_EVENTO"
+        },
+        {
+          "code": "HEURISTIC_ONLY",
+          "message": "Ausencias físicas observadas; obligatoriedad no inferida."
+        }
+      ],
+      "eligible_rows": null,
+      "total_rows": 3,
+      "dimension_ids": [
+        "completeness"
+      ],
+      "source": "suggestion"
+    },
+    {
+      "rule_id": "suggest_07863295ef6e",
+      "asset_id": "mercado_laboral",
+      "metric_id": "unapproved",
+      "evaluator": "builtin.presence",
+      "status": "RECOMMENDED",
+      "reasons": [
+        {
+          "code": "USER_REVIEW_REQUIRED",
+          "message": "Comprobar completitud de FECHA_CAPTURA"
+        },
+        {
+          "code": "HEURISTIC_ONLY",
+          "message": "Ausencias físicas observadas; obligatoriedad no inferida."
+        }
+      ],
+      "eligible_rows": null,
+      "total_rows": 3,
+      "dimension_ids": [
+        "completeness"
+      ],
+      "source": "suggestion"
+    }
+  ]
+}
