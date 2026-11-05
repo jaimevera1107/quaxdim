@@ -1,4 +1,5 @@
-"""Explicit human approval: transform conservative suggestions into v0.2 contracts.
+"""Explicit human approval: transform conservative suggestions into v0.2
+contracts.
 
 No suggestion is approved by discovery. No threshold is silently invented.
 A generated contract preserves field semantics, review source, and provenance.
@@ -85,7 +86,8 @@ def build_reviewed_contract(
             or not rec.expectation
         ):
             raise ApprovalError(
-                f"{rid}: recommendation is a hypothesis/context request, not an executable rule"
+                f"{rid}: recommendation is a hypothesis/context request, not "
+                f"an executable rule"
             )
         threshold = thresholds[rid]
         if isinstance(threshold, (float, int)) and not isinstance(
@@ -183,11 +185,15 @@ def build_reviewed_contract(
             "data_disclosure": "no_raw_values",
         },
     }
-    # Notes are returned separately because the standard v0.2 contract is closed.
+    # Notes are returned separately because the standard v0.2 contract is
+    # closed.
     return result, {
         "review_date": datetime.now(timezone.utc).isoformat(),
         "purpose": purpose,
         "approved": notes,
         "automatic_approval": False,
-        "warning": "User approval does not validate semantic correctness or engine support.",
+        "warning": (
+            "User approval does not validate semantic correctness or engine "
+            "support."
+        ),
     }

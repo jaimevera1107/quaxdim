@@ -4,7 +4,8 @@ No pandas materialization, and never convert Spark/Polars/DuckDB sources into
 pandas. Source adapters return aggregate metadata; only CSV's optional bounded
 reservoir holds raw rows, in process and never serialized.
 
-Discovering a plausible rule is not certifying that rule or its observed compliance.
+Discovering a plausible rule is not certifying that rule or its observed
+compliance.
 """
 
 from __future__ import annotations
@@ -65,7 +66,9 @@ _ID_VALID = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]*$")
 
 @dataclass(frozen=True)
 class DiscoveryBudget:
-    """Limits are part of the public contract, not hints to be silently ignored."""
+    """Limits are part of the public contract, not hints to be silently
+    ignored.
+    """
 
     mode: str = "balanced"  # schema | balanced | deep
     max_profile_columns: int = 64
@@ -100,7 +103,9 @@ class DiscoveryBudget:
 
 
 class ApproxCardinality:
-    """Deterministic HyperLogLog sketch, descriptive only, never uniqueness proof."""
+    """Deterministic HyperLogLog sketch, descriptive only, never uniqueness
+    proof.
+    """
 
     def __init__(self, precision: int = 10):
         self.p = precision
@@ -204,7 +209,8 @@ class AdvancedDiscoveryReport:
         }
 
     def to_json(self, path=None, *, reveal_configuration=False):
-        # Budget reveals no row values. All raw lexical samples are kept internally.
+        # Budget reveals no row values. All raw lexical samples are kept
+        # internally.
         doc = json.dumps(
             self.to_dict(reveal_configuration=reveal_configuration),
             ensure_ascii=False,
@@ -217,7 +223,9 @@ class AdvancedDiscoveryReport:
         return doc
 
     def capability_coverage(self):
-        """Comparable recommendation-family counts; not a promise of equal data semantics."""
+        """Comparable recommendation-family counts; not a promise of equal data
+        semantics.
+        """
         out = {}
         for aid in self.assets:
             arr = [r for r in self.recommendations if r.asset_id == aid]
@@ -233,7 +241,9 @@ class AdvancedDiscoveryReport:
         return out
 
     def resource_plan(self):
-        """Auditable footprint; reports actual passes, not fabricated timing/cost."""
+        """Auditable footprint; reports actual passes, not fabricated
+        timing/cost.
+        """
         output = {}
         for aid, a in self.assets.items():
             mode = a["statistics_scope"]
@@ -272,7 +282,9 @@ class AdvancedDiscoveryReport:
         )
 
     def approved_plan(self, ids, *, purpose: str):
-        """Review manifest, NOT an executable quality contract; requires typed bindings."""
+        """Review manifest, NOT an executable quality contract; requires typed
+        bindings.
+        """
         if not purpose.strip():
             raise ValueError("purpose must not be empty")
         mapping = {r.id: r for r in self.recommendations}
@@ -285,7 +297,10 @@ class AdvancedDiscoveryReport:
             "rules": [
                 mapping[i].to_dict(reveal_configuration=True) for i in ids
             ],
-            "note": "Review manifest only. Requires explicit bindings, types, and compatible execution backend.",
+            "note": (
+                "Review manifest only. Requires explicit bindings, types, and "
+                "compatible execution backend."
+            ),
         }
 
 
@@ -438,7 +453,9 @@ def _is_csv_path(path: Path):
 def _read_csv_stream(
     path: Path, b: DiscoveryBudget, *, delimiter=",", encoding="utf-8-sig"
 ):
-    """A single sequential pass, O(columns + sample_rows*columns + bounded sketches)."""
+    """A single sequential pass, O(columns + sample_rows*columns + bounded
+    sketches).
+    """
     opener = gzip.open if path.name.lower().endswith(".gz") else Path.open
     if opener is gzip.open:
         handle_context = gzip.open(
@@ -568,15 +585,18 @@ def _read_csv_stream(
             for f in candidate_keys
         }
         warn = [
-            "CSV lexical profile preserves leading zeros; blanks are not automatically null."
+            "CSV lexical profile preserves leading zeros; blanks are not "
+            "automatically null."
         ]
         if malformed:
             warn.append(
-                f"CSV contains {malformed} missing/extra field occurrences; structural review needed."
+                f"CSV contains {malformed} missing/extra field occurrences; "
+                f"structural review needed."
             )
         if len(fields) > len(selected):
             warn.append(
-                f"Profile budget limited statistics to {len(selected)} of {len(fields)} columns."
+                f"Profile budget limited statistics to {len(selected)} of "
+                f"{len(fields)} columns."
             )
         return {
             "backend": "csv_stream",
@@ -602,7 +622,7 @@ def _duckdb_source(path: Path, b: DiscoveryBudget, *, connection=None):
         import duckdb
     except ImportError as exc:
         raise ImportError(
-            "DuckDB support requires `pip install quality-dimensions-starter[duckdb]`"
+            'DuckDB support requires `pip install "quaxdim[duckdb]"`'
         ) from exc
     conn = connection or duckdb.connect()
     try:
@@ -616,11 +636,15 @@ def _duckdb_source_with_connection(conn, path, b):
     suffix = path.suffix.lower()
     if suffix not in {".csv", ".parquet"}:
         raise ValueError("DuckDB file discovery supports .csv and .parquet")
-    # Literal escaping prevents path-to-SQL injection, and only trusted table functions run.
+    # Literal escaping prevents path-to-SQL injection, and only trusted table
+    # functions run.
     rel = (
         f"read_parquet({_lit_sql(str(path))})"
         if suffix == ".parquet"
-        else f"read_csv({_lit_sql(str(path))}, all_varchar=true, sample_size=20480)"
+        else (
+            f"read_csv({_lit_sql(str(path))}, "
+            "all_varchar=true, sample_size=20480)"
+        )
     )
     descriptor = conn.execute("DESCRIBE SELECT * FROM " + rel).fetchall()
     cols = [
@@ -656,9 +680,12 @@ def _duckdb_source_with_connection(conn, path, b):
             if c["logical_type"] == "string":
                 exprs.extend(
                     [
-                        f"COUNT(*) FILTER (WHERE regexp_full_match({ident}, '[0-9]+')) AS _dq_digits_{i}",
-                        f"MIN(LENGTH({ident})) FILTER (WHERE {ident} IS NOT NULL AND {ident} != '') AS _dq_minlen_{i}",
-                        f"MAX(LENGTH({ident})) FILTER (WHERE {ident} IS NOT NULL AND {ident} != '') AS _dq_maxlen_{i}",
+                        f"COUNT(*) FILTER (WHERE regexp_full_match({ident}, "
+                        f"'[0-9]+')) AS _dq_digits_{i}",
+                        f"MIN(LENGTH({ident})) FILTER (WHERE {ident} IS NOT "
+                        f"NULL AND {ident} != '') AS _dq_minlen_{i}",
+                        f"MAX(LENGTH({ident})) FILTER (WHERE {ident} IS NOT "
+                        f"NULL AND {ident} != '') AS _dq_maxlen_{i}",
                     ]
                 )
     cursor = conn.execute("SELECT " + ", ".join(exprs) + " FROM " + rel)
@@ -683,7 +710,8 @@ def _duckdb_source_with_connection(conn, path, b):
     ]
     if suffix == ".csv":
         warnings.append(
-            "CSV imported lexically by DuckDB; no implicit type or date coercion."
+            "CSV imported lexically by DuckDB; no implicit type or date "
+            "coercion."
         )
     if len(cols) > len(selected):
         warnings.append("Profiling columns capped by budget.")
@@ -794,13 +822,15 @@ def _polars_source(source, b: DiscoveryBudget):
         "statistics_scope": "lazy_aggregate_no_raw_rows",
         "sample": [],
         "warnings": [
-            "Polars approx_n_unique is approximate, not a uniqueness certificate."
+            "Polars approx_n_unique is approximate, not a uniqueness "
+            "certificate."
         ],
     }
 
 
 def _spark_source(df, b: DiscoveryBudget):
-    # Spark import is strictly optional, and schema mode schedules NO Spark job.
+    # Spark import is strictly optional, and schema mode schedules NO Spark
+    # job.
     if ".connect." in type(df).__module__:
         raise NotImplementedError(
             "Spark Connect is not verified for this adapter"
@@ -920,7 +950,10 @@ def _single_asset_advice(aid, asset, b):
                 confidence="medium" if "identifier" in roles else "low",
                 priority="high" if "identifier" in roles else "medium",
                 cost="aggregate",
-                rationale="La completitud es medible; la obligatoriedad se decide por el uso.",
+                rationale=(
+                    "La completitud es medible; la obligatoriedad se decide "
+                    "por el uso."
+                ),
                 evidence=ev,
                 prerequisites=("Confirmar obligatoriedad de la variable",),
             )
@@ -952,10 +985,14 @@ def _single_asset_advice(aid, asset, b):
                         confidence="medium",
                         priority="high",
                         cost="aggregate",
-                        rationale="Nombre y tipo sugieren conteo; los ajustes pueden ser negativos.",
+                        rationale=(
+                            "Nombre y tipo sugieren conteo; los ajustes "
+                            "pueden ser negativos."
+                        ),
                         evidence={"physical_type": meta["physical_type"]},
                         caveats=(
-                            "No aplicar a saldos, diferencias o ajustes firmados.",
+                            "No aplicar a saldos, diferencias o ajustes "
+                            "firmados.",
                         ),
                     )
                 )
@@ -968,9 +1005,13 @@ def _single_asset_advice(aid, asset, b):
                         [name],
                         priority="high",
                         cost="aggregate",
-                        rationale="Parece conteo, pero el tipo es lexical o desconocido.",
+                        rationale=(
+                            "Parece conteo, pero el tipo es lexical o "
+                            "desconocido."
+                        ),
                         prerequisites=(
-                            "Definir conversión, locale, nulos y vigencia temporal",
+                            "Definir conversión, locale, nulos y vigencia "
+                            "temporal",
                         ),
                     )
                 )
@@ -1019,7 +1060,10 @@ def _single_asset_advice(aid, asset, b):
                         expectation={"tokens": sentinels},
                         priority="medium",
                         cost="schema",
-                        rationale="La muestra contiene posibles marcadores de ausencia.",
+                        rationale=(
+                            "La muestra contiene posibles marcadores de "
+                            "ausencia."
+                        ),
                         evidence={
                             "observed_token_types": len(sentinels),
                             "sample_rows": len(vals),
@@ -1052,13 +1096,17 @@ def _single_asset_advice(aid, asset, b):
                                 confidence="low",
                                 priority="medium",
                                 cost="aggregate",
-                                rationale="Patrón uniforme observado en muestra acotada.",
+                                rationale=(
+                                    "Patrón uniforme observado en muestra "
+                                    "acotada."
+                                ),
                                 evidence={
                                     "sample_non_missing": len(strict),
                                     "width": w,
                                 },
                                 caveats=(
-                                    "Códigos históricos pueden variar de longitud.",
+                                    "Códigos históricos pueden variar de "
+                                    "longitud.",
                                 ),
                             )
                         )
@@ -1083,7 +1131,10 @@ def _single_asset_advice(aid, asset, b):
                             confidence="low",
                             priority="medium",
                             cost="external",
-                            rationale="Dominio deducido de muestra; no demuestra mundo cerrado.",
+                            rationale=(
+                                "Dominio deducido de muestra; no demuestra "
+                                "mundo cerrado."
+                            ),
                             evidence={
                                 "distinct_in_sample": len(unique),
                                 "sample_rows": len(vals),
@@ -1125,7 +1176,10 @@ def _single_asset_advice(aid, asset, b):
                         confidence="medium",
                         priority="medium",
                         cost="aggregate",
-                        rationale="Todos los valores no vacíos tienen el mismo ancho y solo dígitos.",
+                        rationale=(
+                            "Todos los valores no vacíos tienen el mismo "
+                            "ancho y solo dígitos."
+                        ),
                         evidence={
                             "scope": "full_aggregate",
                             "nonempty": nonempty,
@@ -1133,7 +1187,8 @@ def _single_asset_advice(aid, asset, b):
                             "width": lo,
                         },
                         caveats=(
-                            "Un patrón observado no es un estándar obligatorio; validar cambios históricos.",
+                            "Un patrón observado no es un estándar "
+                            "obligatorio; validar cambios históricos.",
                         ),
                     )
                 )
@@ -1167,7 +1222,10 @@ def _single_asset_advice(aid, asset, b):
                             confidence="medium",
                             priority="high",
                             cost="exact_scan",
-                            rationale="Sin duplicación entre presentes en escaneo limitado exacto.",
+                            rationale=(
+                                "Sin duplicación entre presentes en escaneo "
+                                "limitado exacto."
+                            ),
                             evidence={
                                 "exact_non_null_distinct": exact[
                                     "exact_distinct"
@@ -1176,7 +1234,8 @@ def _single_asset_advice(aid, asset, b):
                                 "exact": True,
                             },
                             caveats=(
-                                "No equivale a una obligación de unicidad por diseño.",
+                                "No equivale a una obligación de unicidad por "
+                                "diseño.",
                             ),
                         )
                     )
@@ -1196,7 +1255,10 @@ def _single_asset_advice(aid, asset, b):
                             dimension="uniqueness",
                             cost="exact_scan",
                             priority="high",
-                            rationale="Estimador aproximado sugiere alta cardinalidad; requiere prueba exacta.",
+                            rationale=(
+                                "Estimador aproximado sugiere alta "
+                                "cardinalidad; requiere prueba exacta."
+                            ),
                             evidence={
                                 "approx_distinct": meta["approx_distinct"],
                                 "non_null": observed_non_null,
@@ -1207,7 +1269,8 @@ def _single_asset_advice(aid, asset, b):
                             ),
                         )
                     )
-    # Sample-only candidate keys; small, interpretable search to avoid N² scans.
+    # Sample-only candidate keys; small, interpretable search to avoid N²
+    # scans.
     keyed = [
         c["name"]
         for c in cols
@@ -1237,7 +1300,10 @@ def _single_asset_advice(aid, asset, b):
                         dimension="uniqueness",
                         cost="exact_scan",
                         priority="high",
-                        rationale="Candidata no duplicada en reservorio; sin prueba global.",
+                        rationale=(
+                            "Candidata no duplicada en reservorio; sin prueba "
+                            "global."
+                        ),
                         evidence={
                             "sample_pairs": len(valid),
                             "sample_unique": len(set(valid)),
@@ -1276,14 +1342,19 @@ def _single_asset_advice(aid, asset, b):
                         confidence="low",
                         priority="high",
                         cost="aggregate",
-                        rationale="Dos campos temporalmente tipados con nombres de inicio y fin.",
+                        rationale=(
+                            "Dos campos temporalmente tipados con nombres de "
+                            "inicio y fin."
+                        ),
                         prerequisites=(
                             "Confirmar que pertenecen al mismo evento",
                         ),
                     )
                 )
-    # Candidate functional dependencies are useful only with repeated determinant values.
-    # A unique identifier mapping to arbitrary attributes is trivial and not suggested.
+    # Candidate functional dependencies are useful only with repeated
+    # determinant values.
+    # A unique identifier mapping to arbitrary attributes is trivial and not
+    # suggested.
     if b.mode == "deep" and len(sample) >= 8:
         identifiers = [
             c["name"] for c in cols if "identifier" in c["semantic_roles"]
@@ -1328,14 +1399,18 @@ def _single_asset_advice(aid, asset, b):
                             dimension="consistency",
                             cost="exact_scan",
                             priority="medium",
-                            rationale="Un código repetido conserva el mismo nombre en el reservorio.",
+                            rationale=(
+                                "Un código repetido conserva el mismo nombre "
+                                "en el reservorio."
+                            ),
                             evidence={
                                 "sample_pairs": len(valid),
                                 "distinct_determinants": len(deps),
                                 "sample_based": True,
                             },
                             prerequisites=(
-                                "Verificar versión de catálogo y la dependencia a escala completa",
+                                "Verificar versión de catálogo y la "
+                                "dependencia a escala completa",
                             ),
                         )
                     )
@@ -1351,7 +1426,9 @@ def _name_stem(name):
 
 
 def _relationship_advice(assets):
-    """Name/role affinity only; do not compare raw PII or claim referential validity."""
+    """Name/role affinity only; do not compare raw PII or claim referential
+    validity.
+    """
     out = []
     entries = list(assets.items())
     for idx, (aid, asset) in enumerate(entries):
@@ -1372,22 +1449,28 @@ def _relationship_advice(assets):
                         out.append(
                             _advice(
                                 "relationship",
-                                f"Investigar referencia {aid}.{col['name']} ↔ {bid}.{other['name']}",
+                                f"Investigar referencia {aid}.{col['name']} ↔ "
+                                f"{bid}.{other['name']}",
                                 aid,
                                 [col["name"], other["name"]],
                                 dimension="integrity",
                                 cost="external",
                                 confidence="low",
                                 priority="high",
-                                rationale="Compatibilidad de nombres; no se verificó integridad referencial.",
+                                rationale=(
+                                    "Compatibilidad de nombres; no se "
+                                    "verificó integridad referencial."
+                                ),
                                 evidence={
                                     "other_asset": bid,
                                     "other_field": other["name"],
                                     "schema_only": True,
                                 },
                                 prerequisites=(
-                                    "Definir dirección padre/hijo, claves, nulos y vigencia",
-                                    "Unir fuentes con el motor correspondiente",
+                                    "Definir dirección padre/hijo, claves, "
+                                    "nulos y vigencia",
+                                    "Unir fuentes con el motor "
+                                    "correspondiente",
                                 ),
                             )
                         )
@@ -1412,10 +1495,12 @@ def discover_advanced(
     baseline_profiles: Mapping[str, Mapping[str, Mapping[str, Any]]]
     | None = None,
 ) -> AdvancedDiscoveryReport:
-    """Return conservative hypotheses using bounded memory and engine-native aggregates.
+    """Return conservative hypotheses using bounded memory and engine-native
+    aggregates.
 
     Sources: CSV path (stdlib streaming), DuckDB Parquet/CSV path (optional),
-    Polars LazyFrame/DataFrame (optional), or classic PySpark DataFrame (optional).
+    Polars LazyFrame/DataFrame (optional), or classic PySpark DataFrame
+    (optional).
     Mapping[asset_id, source] enables cross-asset *structural* hints.
 
     Important: no inferred rule is automatically applied or certified.
@@ -1450,7 +1535,8 @@ def discover_advanced(
                 selected_engine = "polars"
             else:
                 raise TypeError(
-                    "Unsupported source: use CSV path, Parquet path, Spark DataFrame or Polars LazyFrame"
+                    "Unsupported source: use CSV path, Parquet path, Spark "
+                    "DataFrame or Polars LazyFrame"
                 )
         if selected_engine == "csv_stream":
             if not isinstance(source, (str, Path)) or not _is_csv_path(
@@ -1489,7 +1575,8 @@ def discover_advanced(
         warnings.extend(f"{aid}: {w}" for w in raw.get("warnings", []))
     if len(private_assets) > 1:
         recommendations.extend(_relationship_advice(private_assets))
-    # External reference suggestions are based on user-provided *metadata* only,
+    # External reference suggestions are based on user-provided *metadata*
+    # only,
     # never inferred lookup content or blindly trusted catalog coverage.
     for signature, hint in (reference_hints or {}).items():
         a, dot, column = signature.partition(".")
@@ -1515,7 +1602,10 @@ def discover_advanced(
                 confidence="medium",
                 priority="high",
                 cost="external",
-                rationale="Existe un catálogo declarado por el usuario, aún no verificado.",
+                rationale=(
+                    "Existe un catálogo declarado por el usuario, aún no "
+                    "verificado."
+                ),
                 evidence={
                     "reference_id": ref_id,
                     "version": hint.get("version"),
@@ -1524,7 +1614,8 @@ def discover_advanced(
                 },
                 prerequisites=(
                     "Vincular referencia verificada",
-                    "Definir dirección, período y política para códigos no encontrados",
+                    "Definir dirección, período y política para códigos no "
+                    "encontrados",
                 ),
             )
         )
@@ -1552,13 +1643,17 @@ def discover_advanced(
                     recommendations.append(
                         _advice(
                             "hypothesis",
-                            f"Investigar cambio de ausencias en {aid}.{c['name']}",
+                            f"Investigar cambio de ausencias en "
+                            f"{aid}.{c['name']}",
                             aid,
                             [c["name"]],
                             dimension="reliability",
                             priority="medium",
                             cost="aggregate",
-                            rationale="Desviación absoluta de 10 puntos o más frente a línea base.",
+                            rationale=(
+                                "Desviación absoluta de 10 puntos o más "
+                                "frente a línea base."
+                            ),
                             evidence={
                                 "null_rate_now": round(rate, 6),
                                 "null_rate_baseline": round(old_rate, 6),
@@ -1567,10 +1662,12 @@ def discover_advanced(
                                 ),
                             },
                             prerequisites=(
-                                "Confirmar equivalencia de poblaciones, período y política de nulos",
+                                "Confirmar equivalencia de poblaciones, "
+                                "período y política de nulos",
                             ),
                             caveats=(
-                                "El cambio puede ser legítimo y no demuestra error.",
+                                "El cambio puede ser legítimo y no demuestra "
+                                "error.",
                             ),
                         )
                     )
@@ -1596,8 +1693,10 @@ def discover_advanced(
     warnings.extend(
         [
             "Heuristic confidence levels are NOT calibrated probabilities.",
-            "Sample patterns, approximate cardinality, and name similarity cannot certify data quality.",
-            "Review manifests are not executable contracts until source types and backend are bound.",
+            "Sample patterns, approximate cardinality, and name similarity "
+            "cannot certify data quality.",
+            "Review manifests are not executable contracts until source types "
+            "and backend are bound.",
         ]
     )
     return AdvancedDiscoveryReport(

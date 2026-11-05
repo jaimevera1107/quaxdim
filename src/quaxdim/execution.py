@@ -1,4 +1,5 @@
-"""Read-only v0.2 contract executor for a deliberately narrow, proven pandas backend.
+"""Read-only v0.2 contract executor for a deliberately narrow, proven pandas
+backend.
 
 Planning and measurement are independent: READY never means PASS. Each unit of
 measurement receives exactly one of PASS, FAIL, UNKNOWN or EXCLUDED. The
@@ -111,12 +112,17 @@ class ContractExecutionReport:
 
     @property
     def passed(self) -> bool:
-        """An unmeasurable/unevaluated obligation is never a successful execution."""
+        """An unmeasurable/unevaluated obligation is never a successful
+        execution.
+        """
         applicable = [r for r in self.results if r.status != "NOT_APPLICABLE"]
         return bool(applicable) and all(r.status == "PASS" for r in applicable)
 
     def dimension_summary(self) -> pd.DataFrame:
-        """No universal index or implicit averaging across overlapping rules."""
+        """Summarise by dimension, without a universal index.
+
+        Overlapping rules are never averaged implicitly.
+        """
         rows = []
         for dim in sorted({d for x in self.results for d in x.dimension_ids}):
             subset = [x for x in self.results if dim in x.dimension_ids]
@@ -151,7 +157,8 @@ def _is_missing(
     missing = series.isna().to_numpy(dtype=bool, copy=True)
     if policy.get("intrinsic_nulls") is False:
         # The missing cell cannot be silently converted into a present scalar.
-        # Treat intrinsic null as unknown/missing for conservative quality checks.
+        # Treat intrinsic null as unknown/missing for conservative quality
+        # checks.
         missing = series.isna().to_numpy(dtype=bool, copy=True)
     if policy.get("empty_string") or policy.get("whitespace_only"):
         s = series.astype("string")
@@ -190,12 +197,14 @@ def _is_missing(
                 )
             ).to_numpy(dtype=bool)
         if string_tokens:
-            # Comparing only string values, never textualizing legitimate numeric codes.
+            # Comparing only string values, never textualizing legitimate
+            # numeric codes.
             strings = series.map(
                 lambda v: string_normalize(v) if isinstance(v, str) else None
             )
             missing |= strings.isin(string_tokens).to_numpy(dtype=bool)
-    # If a custom missingness policy is conditioned on rows, keep other rows untouched.
+    # If a custom missingness policy is conditioned on rows, keep other rows
+    # untouched.
     conditions = policy.get("when")
     if conditions:
         if df is None:
@@ -208,7 +217,8 @@ def _is_missing(
                 "Conditional missing policy is ambiguous for some rows"
             )
         missing &= relevant
-        # Physical missing must remain missing regardless of conditioned sentinel tokens.
+        # Physical missing must remain missing regardless of conditioned
+        # sentinel tokens.
         missing |= series.isna().to_numpy(dtype=bool)
     return missing
 
@@ -384,7 +394,8 @@ def _normalise_dates(
 class ContractExecutor:
     """Run the four formally planned evaluators against pandas tables.
 
-    Unknown data are not silently discarded. Reports contain row positions only;
+    Unknown data are not silently discarded. Reports contain row positions
+    only;
     samples never expose actual values. Run preflight first; non-READY controls
     yield blocked decisions, not manufactured measurement results.
     """
@@ -408,7 +419,8 @@ class ContractExecutor:
         evidence: Mapping[str, Any] | None = None,
         plan: EvaluationPlan | None = None,
     ) -> ContractExecutionReport:
-        # Replan against the supplied objects; don't trust an obsolete user plan.
+        # Replan against the supplied objects; don't trust an obsolete user
+        # plan.
         # If a plan is explicitly supplied, reject any incompatible decisions.
         actual_plan = self.planner.plan(contract, data=data, evidence=evidence)
         if plan is not None and plan.to_dict() != actual_plan.to_dict():
@@ -419,7 +431,8 @@ class ContractExecutor:
         rules = {x["id"]: x for x in contract.get("rules", [])}
         assets = {x["id"]: x for x in contract.get("assets", [])}
         decisions = {x.rule_id: x for x in actual_plan.decisions}
-        # Visit dependencies in topological order; planner already marks cycles.
+        # Visit dependencies in topological order; planner already marks
+        # cycles.
         results: dict[str, ContractRuleResult] = {}
 
         def run_rule(rule_id: str) -> ContractRuleResult:
@@ -539,7 +552,8 @@ class ContractExecutor:
         names = list(rule["target"]["fields"])
         evaluator = metric["evaluator"]
         threshold = rule.get("threshold")
-        # In v0.4, all implemented metrics are rates requiring explicit thresholds.
+        # In v0.4, all implemented metrics are rates requiring explicit
+        # thresholds.
         if (
             metric.get("kind") != "conformance"
             or metric.get("unit") != "ratio"
@@ -569,12 +583,14 @@ class ContractExecutor:
             exc_true, exc_unknown = _predicates(
                 df, rule["exceptions"], mode="any"
             )
-            # An exception whose truth cannot be established yields UNKNOWN, not exclusion.
+            # An exception whose truth cannot be established yields UNKNOWN,
+            # not exclusion.
             filter_unknown |= selected & exc_unknown
             selected &= ~exc_true & ~exc_unknown
         selected &= ~filter_unknown
         scoped = int(selected.sum())
-        # No samples include full original values, even when the field holds sensitive data.
+        # No samples include full original values, even when the field holds
+        # sensitive data.
         if evaluator == "builtin.presence":
             unit = "record" if rule["target"]["level"] == "record" else "value"
             misses = np.column_stack(
@@ -589,7 +605,8 @@ class ContractExecutor:
                 state = np.where(~misses, 1, 0).astype(np.int8)
                 state[~selected, :] = -2
                 unknown_scope_units = int(filter_unknown.sum()) * len(names)
-            # Presence is not an eligibility-null rule; physical/sentinel missing
+            # Presence is not an eligibility-null rule; physical/sentinel
+            # missing
             # values are failures regardless of the metric null policy.
         elif evaluator == "builtin.composite_uniqueness":
             unit = "record"
@@ -602,7 +619,8 @@ class ContractExecutor:
                 frame_keys = df.loc[valid, names].copy()
                 for c in names:
                     s = frame_keys[c]
-                    # For object keys, distinguish e.g. boolean True from integer 1.
+                    # For object keys, distinguish e.g. boolean True from
+                    # integer 1.
                     if s.dtype == object:
                         if s.map(type).nunique() > 1:
                             frame_keys[c] = s.map(
@@ -637,15 +655,18 @@ class ContractExecutor:
                     "Cannot mix zoned and unzoned datetime series"
                 )
             if scale == "calendar_days":
-                # Calendar days are civil days in a *specified* timezone, not UTC
-                # 24-hour blocks. If absent, use the start clock's declared zone.
+                # Calendar days are civil days in a *specified* timezone, not
+                # UTC
+                # 24-hour blocks. If absent, use the start clock's declared
+                # zone.
                 civil_zone = ext.get("calendar_timezone") or fields[start].get(
                     "representation", {}
                 ).get("timezone")
                 if first.dt.tz is not None:
                     if not civil_zone:
                         raise EvaluationError(
-                            "Calendar timezone must be explicit for zoned clocks"
+                            "Calendar timezone must be explicit for zoned "
+                            "clocks"
                         )
                     a = first.dt.tz_convert(civil_zone).dt.date
                     b = last.dt.tz_convert(civil_zone).dt.date
@@ -772,7 +793,8 @@ class ContractExecutor:
                         state[positions[ok]] = 1
             else:
                 raise EvaluationError(
-                    "Reference values must be all scalars or all temporal records"
+                    "Reference values must be all scalars or all temporal "
+                    "records"
                 )
             state[selected & missing] = {
                 "exclude": -2,
@@ -796,7 +818,8 @@ class ContractExecutor:
             raise EvaluationError(f"Evaluator not implemented: {evaluator}")
 
         # Scope indeterminacy is a genuine third state; policy may explicitly
-        # convert it to failure or exclusion. Never apply that coercion silently.
+        # convert it to failure or exclusion. Never apply that coercion
+        # silently.
         unknown_policy = metric.get("unknown_policy", "indeterminate")
         if unknown_policy not in {"indeterminate", "fail", "exclude"}:
             raise EvaluationError(
@@ -815,7 +838,8 @@ class ContractExecutor:
         failed = int((array == 0).sum())
         unknown_in_scope = int((array == -1).sum()) + unknown_scope_units
         excluded = int((array == -2).sum()) - unknown_scope_units
-        # EXCLUDED includes every nonselected row/cell and optional null-policy exclusions.
+        # EXCLUDED includes every nonselected row/cell and optional null-policy
+        # exclusions.
         eligible = passed + failed + unknown_in_scope
         observed = passed + failed
         measured_rate = (passed / observed) if observed else None

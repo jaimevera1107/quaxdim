@@ -1,4 +1,7 @@
-"""First backend: pandas. Checks are declarative; no expressions are eval'ed."""
+"""First backend: pandas.
+
+Checks are declarative; no expressions are eval'ed.
+"""
 
 from __future__ import annotations
 
@@ -60,7 +63,8 @@ OPS = {
 
 @dataclass(frozen=True)
 class Check:
-    """A single auditable contract. `columns` is a tuple of source column names.
+    """A single auditable contract. `columns` is a tuple of source column
+    names.
 
     `null_policy` determines how missing inputs behave for non-required rules:
     - exclude: omit from denominator;
@@ -88,7 +92,8 @@ class Check:
             r"custom\.[a-z][a-z0-9_]*", self.dimension
         ):
             raise ValueError(
-                f"Unknown dimension: {self.dimension}. Custom dimensions must start custom."
+                f"Unknown dimension: {self.dimension}. Custom dimensions must "
+                f"start custom."
             )
         if self.rule not in RULES:
             raise ValueError(f"Unknown rule: {self.rule}")
@@ -208,9 +213,11 @@ class QualityReport:
     def dimension_coverage(
         self, *, include_custom: bool = True
     ) -> pd.DataFrame:
-        """Expose the whole catalog, including dimensions NOT_EVALUATED by this suite.
+        """Expose the whole catalog, including dimensions NOT_EVALUATED by this
+        suite.
 
-        Dimension coverage is an inventory, not a claim of measured data quality.
+        Dimension coverage is an inventory, not a claim of measured data
+        quality.
         """
         ids = list(CATALOG)
         if include_custom:
@@ -246,7 +253,8 @@ class QualityReport:
     def summary(self) -> pd.DataFrame:
         """MACRO average of applicable, successfully executed check rates.
 
-        Not a universal measure of quality: rule weighting and overlapping records
+        Not a universal measure of quality: rule weighting and overlapping
+        records
         are intentionally NOT hidden behind a single global number.
         """
         records = []
@@ -276,11 +284,14 @@ class QualityReport:
         return pd.DataFrame.from_records(records)
 
     def weighted_score(self, weights: Mapping[str, float]) -> float:
-        """Compute an EXPLICIT user-defined composite, with no silently omitted checks.
+        """Compute an EXPLICIT user-defined composite, with no silently omitted
+        checks.
 
-        Supply a positive weight for every executed check ID (excluding only checks
+        Supply a positive weight for every executed check ID (excluding only
+        checks
         explicitly NOT_APPLICABLE). Any SKIP/ERROR aborts the calculation.
-        Scores mix units/constructs and must be interpreted for the intended use.
+        Scores mix units/constructs and must be interpreted for the intended
+        use.
         """
         active = {
             r.id: r for r in self.results if r.status != "NOT_APPLICABLE"
@@ -310,7 +321,9 @@ class QualityReport:
 
     @property
     def passed(self) -> bool:
-        """Errors fail closed; skips need explicit handling by consuming pipelines."""
+        """Errors fail closed; skips need explicit handling by consuming
+        pipelines.
+        """
         return any(r.status == "PASS" for r in self.results) and all(
             r.status in {"PASS", "NOT_APPLICABLE"} for r in self.results
         )
@@ -571,7 +584,9 @@ class QualitySuite:
         references: Mapping[str, pd.DataFrame],
         metadata: Mapping[str, Any],
     ) -> tuple[float | None, int, str]:
-        """Return (ratio, metric denominator, detail); never invent quality evidence."""
+        """Return (ratio, metric denominator, detail); never invent quality
+        evidence.
+        """
         p = check.params
         if check.rule == "row_count":
             ok = ("min" not in p or len(data) >= p["min"]) and (
@@ -587,7 +602,8 @@ class QualitySuite:
             return (
                 float(ok),
                 1,
-                f"missing={sorted(expected - actual)}; unexpected={sorted(actual - expected)}",
+                f"missing={sorted(expected - actual)}; "
+                f"unexpected={sorted(actual - expected)}",
             )
         if check.rule == "metadata_fields":
             required = p.get("required", [])
@@ -608,10 +624,12 @@ class QualitySuite:
             return (
                 len(found) / len(required),
                 len(required),
-                f"present={found}; absent={sorted(set(required) - set(found))}",
+                f"present={found}; "
+                f"absent={sorted(set(required) - set(found))}",
             )
         if check.rule == "assessment":
-            # Manually supplied, attributable, contextualized assessment. Not a dataframe calculation.
+            # Manually supplied, attributable, contextualized assessment. Not a
+            # dataframe calculation.
             source, assessor = p.get("source"), p.get("assessor")
             score = p.get("score")
             if (
@@ -729,7 +747,8 @@ class QualitySuite:
                     if scalar_numeric:
                         mask = mask | s.eq(item).fillna(False)
                     elif not pd.api.types.is_bool_dtype(s.dtype):
-                        # Float promotion (int + null -> float) is normal. Yet False != 0.
+                        # Float promotion (int + null -> float) is normal. Yet
+                        # False != 0.
                         mask = mask | s.map(
                             lambda x, item=item: (
                                 isinstance(x, numbers.Number)
@@ -790,7 +809,8 @@ class QualitySuite:
         p, rule = c.params, c.rule
         s = data[c.columns[0]]
         if rule == "unique":
-            # When a subset is specified, uniqueness is defined within that subset.
+            # When a subset is specified, uniqueness is defined within that
+            # subset.
             positions = np.flatnonzero(scope.to_numpy(dtype=bool))
             result = np.ones(len(data), dtype=bool)
             result[positions] = (
@@ -843,7 +863,8 @@ class QualitySuite:
             right = p.get("right_column")
             if right not in data.columns:
                 raise ValueError(f"Missing comparison column: {right}")
-            # Null checking for RHS is explicit; do not compare missing to real values.
+            # Null checking for RHS is explicit; do not compare missing to real
+            # values.
             rhs = data[right]
             if p.get("op") not in {"eq", "ne", "lt", "le", "gt", "ge"}:
                 raise ValueError("compare requires op eq/ne/lt/le/gt/ge")
@@ -874,7 +895,8 @@ class QualitySuite:
                 raise ValueError("Foreign key arity mismatch")
             if any(column not in ref.columns for column in ref_cols):
                 raise ValueError(f"Missing reference column among {ref_cols}")
-            # MultiIndex hash lookup, not a potentially explosive many-to-many merge.
+            # MultiIndex hash lookup, not a potentially explosive many-to-many
+            # merge.
             right = pd.MultiIndex.from_frame(
                 ref[list(ref_cols)].drop_duplicates()
             )
@@ -910,7 +932,9 @@ class QualitySuite:
 def _numeric(
     series: pd.Series, *, coerce: bool = False
 ) -> tuple[pd.Series, pd.Series]:
-    """Strict by default: don't silently turn code strings such as '001' into numbers."""
+    """Strict by default: don't silently turn code strings such as '001' into
+    numbers.
+    """
     if coerce:
         n = pd.to_numeric(series, errors="coerce")
         return n, n.notna()

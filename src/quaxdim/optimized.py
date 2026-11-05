@@ -1,7 +1,9 @@
-"""v0.8: conservative, fused, native execution of a *portable subset* of contracts.
+"""v0.8: conservative, fused, native execution of a *portable subset* of
+contracts.
 
 Input rows never go through pandas. DuckDB/Polars/Spark execute their own
-expressions; CSV is read sequentially with bounded memory. Only aggregate counts
+expressions; CSV is read sequentially with bounded memory. Only aggregate
+counts
 are returned. Unsupported semantics are BLOCKED, never coerced into PASS.
 """
 
@@ -117,7 +119,8 @@ def _source_engine(source: Any, engine: str) -> str:
     if module.startswith("pyspark."):
         return "spark"
     raise TypeError(
-        "Unsupported input; use a CSV, Parquet, Polars LazyFrame or classic Spark DataFrame"
+        "Unsupported input; use a CSV, Parquet, Polars LazyFrame or classic "
+        "Spark DataFrame"
     )
 
 
@@ -237,7 +240,8 @@ def _plan_rule(rule, metric, asset, engine: str) -> tuple[str, str]:
     ):
         return (
             "UNSUPPORTED",
-            "Scoped, conditional, temporal or dependent rules need backend-specific evaluator",
+            "Scoped, conditional, temporal or dependent rules need "
+            "backend-specific evaluator",
         )
     if metric.get("unknown_policy", "indeterminate") != "indeterminate":
         return (
@@ -297,7 +301,8 @@ def _plan_rule(rule, metric, asset, engine: str) -> tuple[str, str]:
         }:
             return (
                 "UNSUPPORTED",
-                "Conditional or Unicode casefold missingness cannot be emulated",
+                "Conditional or Unicode casefold missingness cannot be "
+                "emulated",
             )
         if engine != "csv_stream" and (
             p.get("whitespace_only") or p.get("normalization") == "trim"
@@ -390,7 +395,8 @@ def _plan_rule(rule, metric, asset, engine: str) -> tuple[str, str]:
         if kinds[0] != kinds[1] or kinds[0] != "numeric":
             return (
                 "UNSUPPORTED",
-                "Portable comparison requires typed numeric fields (timezones require a separate policy)",
+                "Portable comparison requires typed numeric fields (timezones "
+                "require a separate policy)",
             )
     elif evaluator == "builtin.regex_fullmatch":
         ex = rule.get("expectation", {})
@@ -414,7 +420,8 @@ def _plan_rule(rule, metric, asset, engine: str) -> tuple[str, str]:
     }:
         return (
             "UNSUPPORTED",
-            "CSV stream is lexical; numeric/temporal coercion requires explicit adapter",
+            "CSV stream is lexical; numeric/temporal coercion requires "
+            "explicit adapter",
         )
     return "READY", "Safe portable subset"
 
@@ -425,7 +432,10 @@ def plan_optimized(
     data: Mapping[str, Any],
     engine: str = "auto",
 ) -> OptimizedPlan:
-    """Preflight without running expensive data actions; no implicit approval."""
+    """Preflight without running expensive data actions.
+
+    Nothing is approved implicitly.
+    """
     assets = {a["id"]: a for a in contract.get("assets", [])}
     metrics = {m["id"]: m for m in contract.get("metrics", [])}
     if not data:
@@ -497,7 +507,8 @@ def plan_optimized(
         tuple(rules),
         groups,
         (
-            "Counts are exact; engine-level floating-point and collation semantics require parity testing.",
+            "Counts are exact; engine-level floating-point and collation "
+            "semantics require parity testing.",
             "No unapproved recommendations are executed.",
         ),
     )
@@ -581,7 +592,8 @@ def _as_aggregate_sql(rules, metrics, asset):
             (-2, "excluded"),
         ):
             exprs.append(
-                f"COUNT(*) FILTER (WHERE ({state}) = {code}) AS _r{index}_{label}"
+                f"COUNT(*) FILTER (WHERE ({state}) = {code}) AS "
+                f"_r{index}_{label}"
             )
     return ", ".join(exprs)
 
@@ -624,13 +636,15 @@ def _duckdb_run(source, asset, ready, rules, metrics):
                 )
                 if declared != actual[name]:
                     raise ValueError(
-                        f"Physical/logical mismatch for {name}: {actual[name]} vs {declared}"
+                        f"Physical/logical mismatch for {name}: "
+                        f"{actual[name]} vs {declared}"
                     )
         simple = [rules[r.rule_id] for r in ready if r.cost == "aggregate"]
         out = {}
         for batch in _batches(simple):
             cur = conn.execute(
-                f"SELECT {_as_aggregate_sql(batch, metrics, asset)} FROM {relation}"
+                f"SELECT {_as_aggregate_sql(batch, metrics, asset)} FROM "
+                f"{relation}"
             )
             record = dict(
                 zip(
@@ -653,13 +667,16 @@ def _duckdb_run(source, asset, ready, rules, metrics):
             )
             keys = ", ".join(_esc(n) for n in p.fields)
             q = (
-                f"SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE {missing}) AS missing "
+                f"SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE {missing}) "
+                f"AS missing "
                 f"FROM {relation}"
             )
             total, n_missing = conn.execute(q).fetchone()
             dupq = (
-                f"SELECT COALESCE(SUM(CASE WHEN n>1 THEN n ELSE 0 END),0) FROM "
-                f"(SELECT {keys}, COUNT(*) n FROM {relation} WHERE NOT {missing} GROUP BY {keys})"
+                f"SELECT COALESCE(SUM(CASE WHEN n>1 THEN n ELSE 0 END),0) "
+                f"FROM "
+                f"(SELECT {keys}, COUNT(*) n FROM {relation} WHERE NOT "
+                f"{missing} GROUP BY {keys})"
             )
             duplicates = int(conn.execute(dupq).fetchone()[0])
             nullstate = _NULL_STATES[
@@ -982,7 +999,9 @@ def _spark_run(source, asset, ready, rules, metrics):
 def _csv_run(
     source, asset, ready, rules, metrics, *, max_exact_keys=1_000_000
 ):
-    """One CSV read for all simple checks. Exact unique-key checking has a hard memory cap."""
+    """One CSV read for all simple checks. Exact unique-key checking has a hard
+    memory cap.
+    """
     path = Path(source)
     opener = gzip.open if str(path).lower().endswith(".gz") else open
     delimiter = "\t" if ".tsv" in str(path).lower() else ","
@@ -1061,7 +1080,8 @@ def _csv_run(
                     tally[vals] = tally.get(vals, 0) + 1
                     if len(tally) > max_exact_keys:
                         raise MemoryError(
-                            "Exact CSV uniqueness exceeds hard cap; switch to DuckDB"
+                            "Exact CSV uniqueness exceeds hard cap; switch to "
+                            "DuckDB"
                         )
     for r in key_rules:
         dup = sum(c for c in key_counts[r.rule_id].values() if c > 1)
@@ -1148,7 +1168,9 @@ def evaluate_optimized(
     engine: str = "auto",
     max_exact_keys: int = 1_000_000,
 ) -> OptimizedReport:
-    """Run explicitly declared rules only; no implicit conversion or auto-approval."""
+    """Run explicitly declared rules only; no implicit conversion or
+    auto-approval.
+    """
     plan = plan_optimized(contract, data=data, engine=engine)
     rules = {r["id"]: r for r in contract.get("rules", [])}
     assets = {a["id"]: a for a in contract.get("assets", [])}
@@ -1187,7 +1209,8 @@ def evaluate_optimized(
                 raise TypeError(f"Unsupported backend: {backend}")
             measured.update(result)
         except Exception as exc:
-            # The execution is not allowed to claim success after an engine error.
+            # The execution is not allowed to claim success after an engine
+            # error.
             for r in ready:
                 errors[r.rule_id] = f"{type(exc).__name__}: {exc}"
     outputs = []

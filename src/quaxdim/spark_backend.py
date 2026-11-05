@@ -288,7 +288,8 @@ def _date_delay_expr(df, fields, rule):
             delta = delta / F.lit(3600.0)
     else:
         raise EvaluationError(
-            "Spark delay supports native DateType calendar days or UTC TimestampType instants"
+            "Spark delay supports native DateType calendar days or UTC "
+            "TimestampType instants"
         )
     ceiling = float(rule["expectation"]["value"])
     if not math.isfinite(ceiling) or ceiling < 0:
@@ -299,7 +300,8 @@ def _date_delay_expr(df, fields, rule):
 
 
 class SparkContractExecutor:
-    """Spark classic DataFrame evaluation, without collecting records to driver.
+    """Spark classic DataFrame evaluation, without collecting records to
+    driver.
 
     Implemented: presence, scoped composite uniqueness, native date/timestamp
     maximum delay, small scalar catalog lookups. Temporal catalog entries,
@@ -314,7 +316,8 @@ class SparkContractExecutor:
 
     def _preflight(self, contract, data, evidence):
         # Reuse v0.4's robust contract/ID/dependency schema checks; these do
-        # not need pandas data and the resulting pandas decisions are discarded.
+        # not need pandas data and the resulting pandas decisions are
+        # discarded.
         baseline = ApplicabilityPlanner().plan(contract)
         baseline_decisions = {d.rule_id: d for d in baseline.decisions}
         DataFrame, F, T = _spark_modules()
@@ -449,7 +452,8 @@ class SparkContractExecutor:
                             mark(
                                 "UNSUPPORTED",
                                 "VARIANTS_UNSUPPORTED",
-                                "Spark variant selection is not yet implemented",
+                                "Spark variant selection is not yet "
+                                "implemented",
                             )
                         p = f.get("missing_policy", {})
                         if p.get("when") or p.get(
@@ -458,7 +462,8 @@ class SparkContractExecutor:
                             mark(
                                 "UNSUPPORTED",
                                 "MISSING_POLICY_UNSUPPORTED",
-                                "Conditional tokens and Unicode casefold not proven on Spark",
+                                "Conditional tokens and Unicode casefold not "
+                                "proven on Spark",
                             )
                 if df is not None and isinstance(df, DataFrame):
                     try:
@@ -637,7 +642,8 @@ class SparkContractExecutor:
                             mark(
                                 "UNSUPPORTED",
                                 "TEMPORAL_REFERENCE",
-                                "Per-code temporal reference not yet implemented",
+                                "Per-code temporal reference not yet "
+                                "implemented",
                             )
                         elif (
                             df is not None
@@ -676,7 +682,8 @@ class SparkContractExecutor:
                                 mark(
                                     "UNSUPPORTED",
                                     "CATALOG_TYPE",
-                                    "Catalog values must match Spark field type strictly",
+                                    "Catalog values must match Spark field "
+                                    "type strictly",
                                 )
                         elif (
                             spec.get("valid_period")
@@ -810,13 +817,17 @@ class SparkContractExecutor:
                         evidence,
                     )
                 except Exception as exc:
-                    # Spark's distributed errors can be backend specific; no fail-open.
+                    # Spark's distributed errors can be backend specific; no
+                    # fail-open.
                     # Backend exception text may contain sensitive data values.
                     result = self._blocked(
                         d,
                         rule,
                         status="ERROR",
-                        reason=f"Spark operation failed ({type(exc).__name__}); see restricted executor logs",
+                        reason=(
+                            f"Spark operation failed ({type(exc).__name__}); "
+                            f"see restricted executor logs"
+                        ),
                     )
             completed[rid] = result
             return result
@@ -1041,7 +1052,8 @@ class SparkContractExecutor:
             threshold=dict(rule["threshold"]),
             severity=rule.get("severity", "medium"),
             failure_action=rule.get("failure_action", "report"),
-            # Spark does not guarantee stable row positions/order. Never invent them.
+            # Spark does not guarantee stable row positions/order. Never invent
+            # them.
             sample_failed_positions=(),
             sample_indeterminate_positions=(),
             reasons=("spark_native_aggregate; no implicit pandas conversion",),

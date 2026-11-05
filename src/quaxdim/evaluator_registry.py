@@ -1,6 +1,8 @@
-"""Single auditable evaluator catalogue used by planners, execution and suggestions.
+"""Single auditable evaluator catalogue used by planners, execution and
+suggestions.
 
-Backend support is explicit: a registered concept is not assumed executable on Spark.
+Backend support is explicit: a registered concept is not assumed executable on
+Spark.
 """
 
 from __future__ import annotations

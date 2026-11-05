@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 else:
     pd = LazyModule("pandas", extra="pandas")
 
-from .execution import ContractExecutor
+from .execution import ContractExecutionReport, ContractExecutor
 from .spark_backend import (
     SparkContractExecutor,
     _spark_modules,

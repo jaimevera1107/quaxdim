@@ -26,11 +26,13 @@ else:
 from .evaluator_registry import REGISTRY
 
 _IDENTIFIER = re.compile(
-    r"(^id$|(^|[_ -])(id|uuid|guid|code|codigo|cod|sku|zip|postal)([_ -]|$)|_id$)",
+    r"(^id$|(^|[_ -])(id|uuid|guid|code|codigo|cod|sku|zip|postal)"
+    r"([_ -]|$)|_id$)",
     re.I,
 )
 _COUNT = re.compile(
-    r"(^|[_ -])(count|cantidad|total|numero|número|num|qty|quantity|vacantes|inscritos|colocaciones|poblacion|population)([_ -]|$)",
+    r"(^|[_ -])(count|cantidad|total|numero|número|num|qty|quantity|"
+    r"vacantes|inscritos|colocaciones|poblacion|population)([_ -]|$)",
     re.I,
 )
 _BEGIN = re.compile(r"(start|begin|inicio|desde)", re.I)
@@ -52,7 +54,8 @@ _SENTINELS = frozenset(
     }
 )
 _DATE_ISO = re.compile(
-    r"^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$"
+    r"^\d{4}-\d{2}-\d{2}"
+    r"(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$"
 )
 
 
@@ -64,7 +67,10 @@ def _key(what: str, fields: tuple[str, ...]) -> str:
 
 
 def _logical(s: pd.Series) -> tuple[str, str]:
-    """Physical inferred logical type. Never parse lexical strings implicitly."""
+    """Infer the logical type from the physical one.
+
+    Lexical strings are never parsed implicitly.
+    """
     dtype = s.dtype
     if pd.api.types.is_bool_dtype(dtype):
         return "boolean", "bool"
@@ -143,7 +149,8 @@ class Recommendation:
             "approval_required": True,
         }
         if include_configuration:
-            # May contain raw category values; disclose only on explicit request.
+            # May contain raw category values; disclose only on explicit
+            # request.
             out["expectation"] = self.expectation
         return out
 
@@ -213,8 +220,10 @@ class DiscoveryReport:
     ) -> dict[str, Any]:
         """Translate *only explicitly approved* suggestions into contract v0.2.
 
-        Approval confirms a proposed rule AND its hypothesized applicability; user
-        should review any category values via include_configuration=True locally.
+        Approval confirms a proposed rule AND its hypothesized applicability;
+        user
+        should review any category values via include_configuration=True
+        locally.
         """
         if not purpose or not purpose.strip():
             raise ValueError("A nonempty intended purpose is required")
@@ -228,11 +237,13 @@ class DiscoveryReport:
             r.kind not in ("rule", "missing_policy") for r in selected
         ):
             raise ValueError(
-                "Approve at least one executable rule; semantic hypotheses need separate review"
+                "Approve at least one executable rule; semantic hypotheses "
+                "need separate review"
             )
         if self.backend != "pandas":
             raise ValueError(
-                "Spark schema-only discovery cannot create verified field contracts"
+                "Spark schema-only discovery cannot create verified field "
+                "contracts"
             )
         dimensions: dict[str, dict[str, Any]] = {}
         metrics: dict[str, dict[str, Any]] = {}
@@ -332,7 +343,8 @@ class DiscoveryReport:
                 f["logical_type"] == "datetime"
                 and "datetime" in f["physical_type"]
             ):
-                # Datetime data already have physical timestamp dtype; no strings parsed.
+                # Datetime data already have physical timestamp dtype; no
+                # strings parsed.
                 pass
             declarations.append(definition)
         contract = {
@@ -377,10 +389,13 @@ def discover(
     max_categories: int = 12,
     spark_mode: str = "schema",
 ) -> DiscoveryReport:
-    """Bounded evidence-based advisor. Never runs suggested rules or coerces data.
+    """Bounded evidence-based advisor. Never runs suggested rules or coerces
+    data.
 
-    Pandas: deterministic random sample for patterns; full column counts for missing/keys.
-    Classic Spark: schema-only metadata, no collect and no Spark action by default.
+    Pandas: deterministic random sample for patterns; full column counts for
+    missing/keys.
+    Classic Spark: schema-only metadata, no collect and no Spark action by
+    default.
     """
     if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]*", asset_id):
         raise ValueError("asset_id must match the contract ID convention")
@@ -407,8 +422,10 @@ def discover(
     rows: list[dict[str, Any]] = []
     proposals: list[Recommendation] = []
     warnings = [
-        "Heuristic confidence is not a calibrated probability; no rule is enabled without approval.",
-        "Sample-derived domains/patterns may be incomplete or historically unstable.",
+        "Heuristic confidence is not a calibrated probability; no rule is "
+        "enabled without approval.",
+        "Sample-derived domains/patterns may be incomplete or historically "
+        "unstable.",
     ]
     logicals = {}
     for c in data.columns:
@@ -477,14 +494,18 @@ def discover(
             "Ausencias físicas observadas; obligatoriedad no inferida.",
             {"null_count": count_null, "rows": n},
             (
-                "Aprobar únicamente si el campo es obligatorio para el uso previsto.",
+                "Aprobar únicamente si el campo es obligatorio para el uso "
+                "previsto.",
             ),
         )
         if logical == "variant":
             suggest(
                 "context",
                 "Declarar variantes/tipos mixtos de " + c,
-                rationale="Los tipos físicos heterogéneos pueden ser legítimos según período o fuente.",
+                rationale=(
+                    "Los tipos físicos heterogéneos pueden ser legítimos "
+                    "según período o fuente."
+                ),
                 ev={"sample_count": len(sample)},
                 caveats=("No convertir automáticamente.",),
             )
@@ -492,7 +513,10 @@ def discover(
             suggest(
                 "context",
                 "Definir tipo lógico de " + c,
-                rationale="La columna no aporta observaciones tipables o usa un tipo no reconocido.",
+                rationale=(
+                    "La columna no aporta observaciones tipables o usa un "
+                    "tipo no reconocido."
+                ),
                 ev={"rows": n},
             )
         if logical == "string":
@@ -505,10 +529,14 @@ def discover(
                         "missing_policy",
                         "Confirmar blancos/espacios como ausencia en " + c,
                         expect={"empty_string": True, "whitespace_only": True},
-                        rationale="Hay cadenas vacías o de espacios; pueden ser valores permitidos.",
+                        rationale=(
+                            "Hay cadenas vacías o de espacios; pueden ser "
+                            "valores permitidos."
+                        ),
                         ev={"sample_blanks": empty, "sample_rows": len(strs)},
                         caveats=(
-                            "No marcar como ausentes sin conocer el contrato semántico.",
+                            "No marcar como ausentes sin conocer el contrato "
+                            "semántico.",
                         ),
                     )
                 candidate_tokens = sorted(
@@ -523,13 +551,17 @@ def discover(
                         "missing_policy",
                         "Revisar marcadores de ausencia en " + c,
                         expect={"tokens": candidate_tokens},
-                        rationale="Se observaron expresiones que podrían codificar ausencias.",
+                        rationale=(
+                            "Se observaron expresiones que podrían codificar "
+                            "ausencias."
+                        ),
                         ev={
                             "candidate_token_count": len(candidate_tokens),
                             "sample_rows": len(strs),
                         },
                         caveats=(
-                            "NA y otros códigos pueden tener significado válido; confirmar primero.",
+                            "NA y otros códigos pueden tener significado "
+                            "válido; confirmar primero.",
                         ),
                     )
                 iso_count = int(
@@ -544,24 +576,32 @@ def discover(
                     suggest(
                         "semantic",
                         "Confirmar formato regional de fechas en " + c,
-                        rationale="Formato DD/MM o MM/DD potencialmente ambiguo; no se ha interpretado.",
+                        rationale=(
+                            "Formato DD/MM o MM/DD potencialmente ambiguo; no "
+                            "se ha interpretado."
+                        ),
                         ev={"ambiguous_lexical_dates": ambiguous_count},
                         caveats=(
-                            "Requiere patrón, calendario y zona horaria explícitos.",
+                            "Requiere patrón, calendario y zona horaria "
+                            "explícitos.",
                         ),
                     )
                 elif iso_count == len(strs) and len(strs) >= 3:
                     suggest(
                         "semantic",
                         "Confirmar fecha ISO-8601 en " + c,
-                        rationale="Los valores de la muestra cumplen una forma léxica ISO.",
+                        rationale=(
+                            "Los valores de la muestra cumplen una forma "
+                            "léxica ISO."
+                        ),
                         conf="high",
                         ev={
                             "sample_matches": iso_count,
                             "sample_rows": len(strs),
                         },
                         caveats=(
-                            "La apariencia léxica no garantiza fecha calendario válida.",
+                            "La apariencia léxica no garantiza fecha "
+                            "calendario válida.",
                         ),
                     )
                 if id_like:
@@ -587,14 +627,16 @@ def discover(
                                 "pattern": "[0-9]{" + str(width) + "}",
                             },
                             "medium",
-                            "La muestra de códigos tiene longitud y caracteres uniformes.",
+                            "La muestra de códigos tiene longitud y "
+                            "caracteres uniformes.",
                             {
                                 "sample_rows": len(strs),
                                 "width": width,
                                 "scope": const,
                             },
                             (
-                                "Los catálogos históricos o nuevos pueden usar longitudes diferentes.",
+                                "Los catálogos históricos o nuevos pueden "
+                                "usar longitudes diferentes.",
                             ),
                         )
                 if not id_like and len(strs) >= 12:
@@ -621,7 +663,8 @@ def discover(
                                 "scope": const,
                             },
                             (
-                                "Una categoría no vista puede ser válida; revisar antes de aprobar.",
+                                "Una categoría no vista puede ser válida; "
+                                "revisar antes de aprobar.",
                             ),
                         )
         if logical in {"integer", "float", "decimal"} and _COUNT.search(c):
@@ -636,7 +679,8 @@ def discover(
                 "El nombre sugiere una variable de conteo no negativa.",
                 {"rows": n},
                 (
-                    "No aplica a diferencias, saldos, ajustes ni variables firmadas.",
+                    "No aplica a diferencias, saldos, ajustes ni variables "
+                    "firmadas.",
                 ),
             )
         if (
@@ -657,10 +701,12 @@ def discover(
                     "table",
                     {"operator": "composite_unique", "key_fields": [c]},
                     "medium",
-                    "La columna no tiene duplicados observados entre valores presentes.",
+                    "La columna no tiene duplicados observados entre valores "
+                    "presentes.",
                     {"non_null_rows": nn, "distinct_non_null": cardinality},
                     (
-                        "La ausencia de duplicados no demuestra que la clave sea única por diseño.",
+                        "La ausencia de duplicados no demuestra que la clave "
+                        "sea única por diseño.",
                     ),
                 )
     # native datetime pairs: start/inicio to end/fin with compatible names
@@ -693,7 +739,8 @@ def discover(
                     "Los nombres sugieren inicio y fin del mismo evento.",
                     {"rows": n},
                     (
-                        "Pueden existir registros excepcionales o cambios de significado.",
+                        "Pueden existir registros excepcionales o cambios de "
+                        "significado.",
                     ),
                     tuple(sorted(REGISTRY[ev].backends)),
                 )
@@ -756,18 +803,22 @@ def _discover_spark_schema(
                 "El esquema no permite conocer la tasa real de ausencias.",
                 {"schema_nullable": bool(fld.nullable)},
                 (
-                    "Requiere perfilamiento distribuido y revisión de obligatoriedad.",
+                    "Requiere perfilamiento distribuido y revisión de "
+                    "obligatoriedad.",
                 ),
                 tuple(sorted(REGISTRY[evaluator].backends)),
             )
         )
     warnings = [
-        "Spark schema discovery does not certify runtime values, keys or domains.",
-        "No raw records are collected. Approximate distinct counts are descriptive, not proof of uniqueness.",
+        "Spark schema discovery does not certify runtime values, keys or "
+        "domains.",
+        "No raw records are collected. Approximate distinct counts are "
+        "descriptive, not proof of uniqueness.",
     ]
     row_count = None
     if scan:
-        # One bounded-width distributed aggregation; only aggregate statistics go to driver.
+        # One bounded-width distributed aggregation; only aggregate statistics
+        # go to driver.
         from pyspark.sql import functions as F
 
         def col(n):
@@ -801,7 +852,8 @@ def _discover_spark_schema(
             if f"_dq_distinct_{i}" in values:
                 meta["approx_distinct"] = int(values[f"_dq_distinct_{i}"] or 0)
         warnings.append(
-            "Spark aggregate mode launched a distributed job; approx_count_distinct is approximate."
+            "Spark aggregate mode launched a distributed job; "
+            "approx_count_distinct is approximate."
         )
     else:
         warnings.append(

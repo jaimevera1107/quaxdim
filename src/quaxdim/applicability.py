@@ -123,7 +123,8 @@ def _date_repr(value: Any) -> str:
 
 def _date_boundary(value: str, *, end: bool) -> pd.Timestamp:
     ts = pd.Timestamp(value)
-    # Dates in contracts are inclusive civil dates, not midnight at their start.
+    # Dates in contracts are inclusive civil dates, not midnight at their
+    # start.
     if end and len(value) == 10 and value[4] == "-" and value[7] == "-":
         ts = ts + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
     return ts
@@ -132,7 +133,9 @@ def _date_boundary(value: str, *, end: bool) -> pd.Timestamp:
 def _datetime_series(
     frame: pd.DataFrame, field: str, field_defs: Mapping[str, Any]
 ) -> tuple[pd.Series | None, str | None]:
-    """Parse only declared datetime types and explicit formats. Never guess locale."""
+    """Parse only declared datetime types and explicit formats. Never guess
+    locale.
+    """
     if field not in frame.columns:
         return None, "MISSING_FIELD"
     declaration = field_defs.get(field, {})
@@ -206,7 +209,8 @@ def _time_mask(
 def _predicate_mask(
     frame: pd.DataFrame, pred: Mapping[str, Any] | list[dict[str, Any]]
 ) -> tuple[pd.Series | None, str | None]:
-    """Conjunction of JSON-schema predicates, refusing ambiguous null comparisons.
+    """Conjunction of JSON-schema predicates, refusing ambiguous null
+    comparisons.
 
     Also accepts a single predicate for legacy consumers. A comparison with
     missing operands is not silently treated as False, even if only one row
@@ -368,7 +372,8 @@ class ApplicabilityPlanner:
                 ) from exc
             except jsonschema.ValidationError as exc:
                 raise ContractError(
-                    f"Contract v0.2 schema violation at {list(exc.path)}: {exc.message}"
+                    f"Contract v0.2 schema violation at {list(exc.path)}: "
+                    f"{exc.message}"
                 ) from exc
         for section in (
             "assets",
@@ -392,7 +397,8 @@ class ApplicabilityPlanner:
         for key, value in frames.items():
             if not isinstance(value, pd.DataFrame):
                 raise TypeError(
-                    f"Data for asset {key} must be a pandas DataFrame in this backend"
+                    f"Data for asset {key} must be a pandas DataFrame in this "
+                    f"backend"
                 )
             if value.columns.duplicated().any():
                 raise ContractError(
@@ -431,7 +437,8 @@ class ApplicabilityPlanner:
                             (
                                 Reason(
                                     "UNKNOWN_REFERENCE",
-                                    "Disabled rule still references undeclared asset or metric",
+                                    "Disabled rule still references "
+                                    "undeclared asset or metric",
                                 ),
                             ),
                             None,
@@ -577,13 +584,15 @@ class ApplicabilityPlanner:
                         fields.get(c, {}).get("logical_type", "").lower()
                         in prohibited
                     ):
-                        # variant may still be supported by a specialized evaluator; this one is not.
+                        # variant may still be supported by a specialized
+                        # evaluator; this one is not.
                         note(
                             "UNSUPPORTED",
                             "NONSCALAR_FIELD",
                             f"{evaluator} requires scalar fields; found {c}",
                         )
-            # Rules with specified prerequisites must reference declared rule IDs.
+            # Rules with specified prerequisites must reference declared rule
+            # IDs.
             for dep in rule.get("dependencies", []):
                 if dep not in rules:
                     note(
@@ -597,7 +606,8 @@ class ApplicabilityPlanner:
                         "SELF_DEPENDENCY",
                         "Rule depends on itself",
                     )
-            # Metadata-driven preflight for the additional registered evaluator kernels.
+            # Metadata-driven preflight for the additional registered evaluator
+            # kernels.
             expectation = rule.get("expectation", {})
             if evaluator == "builtin.allowed_values":
                 values = expectation.get("values")
@@ -701,7 +711,8 @@ class ApplicabilityPlanner:
                     note(
                         "INVALID_CONTRACT",
                         "IDENTITY_KEY_MISMATCH",
-                        "Target fields and declared key fields must match without repeats",
+                        "Target fields and declared key fields must match "
+                        "without repeats",
                     )
             if evaluator == "builtin.max_delay":
                 extra = rule.get("expectation", {}).get("extensions", {})
@@ -720,7 +731,8 @@ class ApplicabilityPlanner:
                     note(
                         "INVALID_CONTRACT",
                         "DELAY_CLOCKS_INVALID",
-                        "Two distinct clocks with matching field names are required",
+                        "Two distinct clocks with matching field names are "
+                        "required",
                     )
                 delay_limit = rule.get("expectation", {}).get("value")
                 if (
@@ -763,7 +775,8 @@ class ApplicabilityPlanner:
                                 note(
                                     "NEEDS_CONTEXT",
                                     "INSTANT_TIMEZONE_UNDECLARED",
-                                    f"Naive instant {c} requires an explicit timezone",
+                                    f"Naive instant {c} requires an explicit "
+                                    f"timezone",
                                 )
                     if frame is not None and c in frame.columns:
                         _, issue = _datetime_series(frame, c, fields)
@@ -773,7 +786,8 @@ class ApplicabilityPlanner:
                                 issue,
                                 f"Cannot interpret clock field {c} safely",
                             )
-                # Comparing instants with naive local timestamps is risky: UTC != local.
+                # Comparing instants with naive local timestamps is risky: UTC
+                # != local.
                 if len(cols) == 2:
                     a, b = (fields.get(c, {}) for c in cols)
                     if {a.get("logical_type"), b.get("logical_type")} == {
@@ -785,7 +799,8 @@ class ApplicabilityPlanner:
                             note(
                                 "NEEDS_CONTEXT",
                                 "TIMEZONE_REQUIRED",
-                                "Mixed local time and instant require a declared IANA zone",
+                                "Mixed local time and instant require a "
+                                "declared IANA zone",
                             )
             # evidence_required lists evidence kinds; reference_ids lists IDs.
             kinds_needed = (
@@ -806,7 +821,8 @@ class ApplicabilityPlanner:
                     note(
                         "NEEDS_EVIDENCE",
                         "REFERENCE_UNRESOLVED",
-                        f"Reference {ref_id} is described but content is not bound/verified",
+                        f"Reference {ref_id} is described but content is not "
+                        f"bound/verified",
                     )
                 else:
                     payload = ev[ref_id]
@@ -826,7 +842,8 @@ class ApplicabilityPlanner:
                         note(
                             "NEEDS_EVIDENCE",
                             "REFERENCE_UNVERIFIED",
-                            f"Reference {ref_id} requires verified values and provenance",
+                            f"Reference {ref_id} requires verified values and "
+                            f"provenance",
                         )
                     if refs[ref_id].get(
                         "version"
@@ -834,9 +851,11 @@ class ApplicabilityPlanner:
                         note(
                             "NEEDS_EVIDENCE",
                             "REFERENCE_VERSION_MISMATCH",
-                            f"Reference {ref_id} version must match contract, including when omitted",
+                            f"Reference {ref_id} version must match contract, "
+                            f"including when omitted",
                         )
-                    # Official catalog validity may be narrower than a temporal rule.
+                    # Official catalog validity may be narrower than a temporal
+                    # rule.
                     when_period = rule.get("when_period", {})
                     ref_period = refs[ref_id].get("valid_period", {})
                     if when_period and ref_period:
@@ -848,7 +867,8 @@ class ApplicabilityPlanner:
                             note(
                                 "NEEDS_EVIDENCE",
                                 "REFERENCE_TEMPORAL_SCOPE",
-                                "Reference validity does not cover the rule period",
+                                "Reference validity does not cover the rule "
+                                "period",
                             )
             if evaluator == "reference.lookup_temporal":
                 for ref_id in ref_ids:
@@ -857,7 +877,9 @@ class ApplicabilityPlanner:
                         note(
                             "NEEDS_CONTEXT",
                             "REFERENCE_PERIOD_UNSCOPED",
-                            "A time-limited catalog requires explicit when_period; otherwise historical data may be misclassified",
+                            "A time-limited catalog requires explicit "
+                            "when_period; otherwise historical data may be "
+                            "misclassified",
                         )
             if capability and capability.evidence_required and not ref_ids:
                 note(
@@ -921,7 +943,8 @@ class ApplicabilityPlanner:
                                     note(
                                         "AMBIGUOUS",
                                         issue,
-                                        f"Representation variant for {c} cannot be selected unambiguously",
+                                        f"Representation variant for {c} "
+                                        f"cannot be selected unambiguously",
                                     )
             decisions.append(
                 Decision(
@@ -936,7 +959,8 @@ class ApplicabilityPlanner:
                     tuple(metric.get("dimension_ids", ())) if metric else (),
                 )
             )
-        # Propagate dependency issues, including cycles, without silently choosing an ordering.
+        # Propagate dependency issues, including cycles, without silently
+        # choosing an ordering.
         index = {r.rule_id: r for r in decisions}
         graph = {
             r["id"]: set(r.get("dependencies", []))
@@ -1007,8 +1031,10 @@ class ApplicabilityPlanner:
 
         output = [decide(d.rule_id) for d in decisions]
         if suggest:
-            # The richer discovery advisor is advisory only and never appends rules
-            # to the actual contract. No raw category values enter preflight reports.
+            # The richer discovery advisor is advisory only and never appends
+            # rules
+            # to the actual contract. No raw category values enter preflight
+            # reports.
             from .discovery import discover
 
             declared = {

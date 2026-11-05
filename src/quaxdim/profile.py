@@ -1,4 +1,6 @@
-"""Non-prescriptive profiling. Profiles are observations, not quality judgments."""
+"""Non-prescriptive profiling. Profiles are observations, not quality
+judgments.
+"""
 
 from __future__ import annotations
 
@@ -17,8 +19,10 @@ def profile(
 ) -> pd.DataFrame:
     """Summarize physical characteristics without making business assumptions.
 
-    Counts all-null columns and avoids silently treating identifiers as numbers.
-    For very large datasets, count_distinct=False avoids expensive cardinalities.
+    Counts all-null columns and avoids silently treating identifiers as
+    numbers.
+    For very large datasets, count_distinct=False avoids expensive
+    cardinalities.
     """
     if not isinstance(data, pd.DataFrame):
         raise TypeError("profile() requires pandas.DataFrame")
@@ -39,7 +43,8 @@ def profile(
                 if count_distinct
                 else None,
                 "all_null": bool(missing == n),
-                "semantic_type": None,  # must be declared by data owner/contract
+                # Must be declared by the data owner or the contract.
+                "semantic_type": None,
             }
         )
     return pd.DataFrame.from_records(rows)

@@ -1,4 +1,5 @@
-"""Additional pandas evaluator kernels. No mutation, no implicit numeric/string coercion.
+"""Additional pandas evaluator kernels. No mutation, no implicit numeric/string
+coercion.
 
 1=pass, 0=fail, -1=unknown, -2=excluded. Caller applies scope and aggregation.
 """
@@ -82,7 +83,8 @@ def evaluate_pandas_extra(
         vals = expectation.get("values")
         if not isinstance(vals, list) or not vals or len(vals) > 100_000:
             raise ValueError(
-                "Explicit, nonempty allowed-values list required (maximum 100000)"
+                "Explicit, nonempty allowed-values list required (maximum "
+                "100000)"
             )
         permitted = {_typed_key(v) for v in vals}
         ok = np.array(
@@ -132,13 +134,14 @@ def evaluate_pandas_extra(
         pattern = expectation.get("pattern")
         if not isinstance(pattern, str) or not pattern or len(pattern) > 512:
             raise ValueError(
-                "Regex pattern must be a nonempty string, at most 512 characters"
+                "Regex pattern must be a nonempty string, at most 512 "
+                "characters"
             )
         try:
             import regex  # timeout on each distinct lexical value
         except ImportError as e:
             raise ValueError(
-                "Install quality-dimensions-starter[regex] to evaluate regex rules"
+                'Install "quaxdim[regex]" to evaluate regex rules'
             ) from e
         try:
             compiled = regex.compile(pattern)
@@ -147,7 +150,8 @@ def evaluate_pandas_extra(
         values = df[names[0]].iloc[np.flatnonzero(useful)]
         if len(values) > 500_000:
             raise ValueError(
-                "Regex evaluation exceeds limit (500000 values); partition the asset"
+                "Regex evaluation exceeds limit (500000 values); partition "
+                "the asset"
             )
         cache: dict[str, bool] = {}
         answer = []
@@ -179,11 +183,13 @@ def evaluate_pandas_extra(
                 "gt": lambda a, b: a > b,
                 "gte": lambda a, b: a >= b,
             }[op]
-            # do not compare mixed incompatible types or rely on pandas coercion
+            # do not compare mixed incompatible types or rely on pandas
+            # coercion
             pair_results = []
             for a, b in zip(left, right, strict=True):
                 if type(a) is not type(b):
-                    # numeric dtypes legitimately differ in scalar representation
+                    # numeric dtypes legitimately differ in scalar
+                    # representation
                     if not (_numeric(a) and _numeric(b)):
                         pair_results.append(False)
                         continue

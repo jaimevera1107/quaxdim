@@ -71,7 +71,10 @@ def main(argv: list[str] | None = None) -> int:
         "--approve",
         action="append",
         required=True,
-        help="Approved suggestion ID (repeat flag); use 'quaxdim suggest' to obtain IDs",
+        help=(
+            "Approved suggestion ID (repeat flag); use 'quaxdim suggest' to "
+            "obtain IDs"
+        ),
     )
     p_draft.add_argument("--purpose", required=True)
     p_draft.add_argument("--output", default="approved_contract.yaml")
@@ -181,8 +184,10 @@ def main(argv: list[str] | None = None) -> int:
             for rec in result.recommendations:
                 breakdown[rec.kind] = breakdown.get(rec.kind, 0) + 1
             print(
-                f"Backend={result.assets[args.asset]['backend']}; rows={result.assets[args.asset]['rows']}; "
-                f"proposals={len(result.recommendations)} ({breakdown}); report={args.output}"
+                f"Backend={result.assets[args.asset]['backend']}; "
+                f"rows={result.assets[args.asset]['rows']}; "
+                f"proposals={len(result.recommendations)} ({breakdown}); "
+                f"report={args.output}"
             )
             print("No rule was automatically approved or executed.")
             return 0
@@ -217,7 +222,8 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
             print(
-                f"Overall: {'PASS' if out.passed else 'NOT PASS'}; report={args.output}"
+                f"Overall: {'PASS' if out.passed else 'NOT PASS'}; "
+                f"report={args.output}"
             )
             return 0 if out.passed else 1
         if args.command == "dimensions":
@@ -237,7 +243,8 @@ def main(argv: list[str] | None = None) -> int:
 
             path = Path(args.data)
             if path.suffix.lower() == ".csv":
-                # Avoid stripping leading zeros or treating NA as missing without consent.
+                # Avoid stripping leading zeros or treating NA as missing
+                # without consent.
                 data = pd.read_csv(path, dtype="string", keep_default_na=False)
             else:
                 data = read_data(args.data)
@@ -248,7 +255,8 @@ def main(argv: list[str] | None = None) -> int:
                 discovery.to_json(args.output)
                 print(discovery.to_frame().to_string(index=False))
                 print(
-                    f"Advisory suggestions only; no rule enabled. report={args.output}"
+                    f"Advisory suggestions only; no rule enabled. "
+                    f"report={args.output}"
                 )
             else:
                 result = discovery.to_contract(
@@ -263,7 +271,8 @@ def main(argv: list[str] | None = None) -> int:
                     encoding="utf-8",
                 )
                 print(
-                    f"Explicitly approved contract: {len(result['rules'])} rules; file={args.output}"
+                    f"Explicitly approved contract: {len(result['rules'])} "
+                    f"rules; file={args.output}"
                 )
             return 0
         if args.command == "plan":
@@ -274,13 +283,16 @@ def main(argv: list[str] | None = None) -> int:
             contract = load_contract(args.contract)
             source_path = Path(args.data)
             if source_path.suffix.lower() == ".csv":
-                # Lexical values such as 0001 remain strings; dates need explicit patterns.
+                # Lexical values such as 0001 remain strings; dates need
+                # explicit patterns.
                 frame = pd.read_csv(
                     source_path, dtype="string", keep_default_na=False
                 )
             else:
-                # XLSX presentation formats may not survive pandas import: inspect original
-                # workbook separately before assuming semantics of formatted cells.
+                # XLSX presentation formats may not survive pandas import:
+                # inspect original
+                # workbook separately before assuming semantics of formatted
+                # cells.
                 frame = read_data(args.data)
             evidence = (
                 json.loads(
@@ -302,7 +314,8 @@ def main(argv: list[str] | None = None) -> int:
                 ].to_string(index=False)
             )
             print(
-                f"Preflight only (no quality rules executed); report={args.output}"
+                f"Preflight only (no quality rules executed); "
+                f"report={args.output}"
             )
             return (
                 0
@@ -355,7 +368,8 @@ def main(argv: list[str] | None = None) -> int:
                 ].to_string(index=False)
             )
             print(
-                f"Overall: {'PASS' if report.passed else 'NOT PASS'}; report={args.output}"
+                f"Overall: {'PASS' if report.passed else 'NOT PASS'}; "
+                f"report={args.output}"
             )
             return 0 if report.passed else 1
         from .core import QualitySuite
@@ -380,7 +394,8 @@ def main(argv: list[str] | None = None) -> int:
         report.to_json(args.output)
         print(report.to_frame().to_string(index=False))
         print(
-            f"Result: {'PASS' if report.passed else 'NOT PASS'}; report={args.output}"
+            f"Result: {'PASS' if report.passed else 'NOT PASS'}; "
+            f"report={args.output}"
         )
         return 0 if report.passed else 1
     except (ValueError, OSError, TypeError, KeyError, ImportError) as exc:
