@@ -8,17 +8,17 @@ certainty. No input frame or external reference is modified.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
+import json
+import math
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
-from typing import Any, Mapping
-import json
-import math
-
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ._lazy import LazyModule
+from .pandas_evaluators import EXTRA_PANDAS_EVALUATORS, evaluate_pandas_extra
 
 if TYPE_CHECKING:
     import numpy as np
@@ -379,9 +379,6 @@ def _normalise_dates(
         raise EvaluationError(
             f"Timezone conversion failed: {type(exc).__name__}"
         ) from exc
-
-
-from .pandas_evaluators import EXTRA_PANDAS_EVALUATORS, evaluate_pandas_extra
 
 
 class ContractExecutor:

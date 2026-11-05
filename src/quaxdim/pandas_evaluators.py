@@ -4,11 +4,12 @@
 """
 
 from __future__ import annotations
+
+import math
+from collections.abc import Mapping
 from decimal import Decimal
 from numbers import Real
-from typing import Any, Mapping
-import math
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ._lazy import LazyModule
 
@@ -180,7 +181,7 @@ def evaluate_pandas_extra(
             }[op]
             # do not compare mixed incompatible types or rely on pandas coercion
             pair_results = []
-            for a, b in zip(left, right):
+            for a, b in zip(left, right, strict=True):
                 if type(a) is not type(b):
                     # numeric dtypes legitimately differ in scalar representation
                     if not (_numeric(a) and _numeric(b)):

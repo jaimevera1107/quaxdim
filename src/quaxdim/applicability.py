@@ -6,18 +6,17 @@ it is NOT a claim that the quality rule has passed or even been executed.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
-from collections import Counter
-from datetime import date, datetime
-from pathlib import Path
-from importlib.resources import files
-from typing import Any, Mapping
 import json
 import math
-
-from typing import TYPE_CHECKING
+from collections import Counter
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass
+from importlib.resources import files
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from ._lazy import LazyModule
+from .evaluator_registry import Capability, capabilities
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -89,9 +88,7 @@ class EvaluationPlan:
         return output
 
 
-# Imported from one canonical, backend-aware evaluator registry.
-from .evaluator_registry import Capability, capabilities, supports_backend
-
+# Capabilities come from one canonical, backend-aware evaluator registry.
 BUILTIN_CAPABILITIES = capabilities()
 
 _STATUS_PRIORITY = (
@@ -407,9 +404,15 @@ class ApplicabilityPlanner:
             reasons: list[Reason] = []
             statuses: set[str] = set()
 
-            def note(state: str, code: str, explanation: str) -> None:
-                statuses.add(state)
-                reasons.append(Reason(code, explanation))
+            def note(
+                state: str,
+                code: str,
+                explanation: str,
+                _statuses: set[str] = statuses,
+                _reasons: list[Reason] = reasons,
+            ) -> None:
+                _statuses.add(state)
+                _reasons.append(Reason(code, explanation))
 
             rid, aid, mid = rule["id"], rule["asset_id"], rule["metric_id"]
             metric = metrics.get(mid)

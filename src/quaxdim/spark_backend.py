@@ -10,20 +10,22 @@ This module is importable when pyspark is not installed.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
-from hashlib import sha256
-from typing import Any, Mapping
 import json
 import math
+import operator
+from collections.abc import Mapping
+from datetime import date, datetime, timezone
+from hashlib import sha256
+from typing import Any
 
-from .evaluator_registry import supports_backend
 from .applicability import (
-    ApplicabilityPlanner,
-    EvaluationPlan,
-    Decision,
-    Reason,
     BUILTIN_CAPABILITIES,
+    ApplicabilityPlanner,
+    Decision,
+    EvaluationPlan,
+    Reason,
 )
+from .evaluator_registry import supports_backend
 from .execution import (
     ContractExecutionReport,
     ContractRuleResult,
@@ -31,16 +33,28 @@ from .execution import (
     _failure_status,
 )
 
+# Column comparison operators for the supported predicate operators.
+_COMPARISONS = {
+    "eq": operator.eq,
+    "ne": operator.ne,
+    "lt": operator.lt,
+    "lte": operator.le,
+    "gt": operator.gt,
+    "gte": operator.ge,
+}
 
-class SparkBackendUnavailable(ImportError):
+
+class SparkBackendUnavailableError(ImportError):
     """The optional PySpark dependency is unavailable."""
 
 
 def _spark_modules():
     try:
-        from pyspark.sql import DataFrame, functions as F, types as T
+        from pyspark.sql import DataFrame
+        from pyspark.sql import functions as F
+        from pyspark.sql import types as T
     except ImportError as exc:
-        raise SparkBackendUnavailable(
+        raise SparkBackendUnavailableError(
             'Install optional extra: pip install ".[spark]"'
         ) from exc
     return DataFrame, F, T
@@ -98,14 +112,7 @@ def _pred(
             if val is None or isinstance(val, (dict, list)):
                 raise EvaluationError("Comparison requires a non-null scalar")
             v = F.lit(val)
-            term = {
-                "eq": lambda: c == v,
-                "ne": lambda: c != v,
-                "lt": lambda: c < v,
-                "lte": lambda: c <= v,
-                "gt": lambda: c > v,
-                "gte": lambda: c >= v,
-            }[op]()
+            term = _COMPARISONS[op](c, v)
         else:
             raise EvaluationError(f"Predicate operator not supported: {op}")
         if op not in {"exists", "not_null", "not_exists", "is_null"}:
@@ -321,11 +328,11 @@ class SparkContractExecutor:
             evaluator = m.get("evaluator", "") if m else ""
             status, reasons = "READY", []
 
-            def mark(state, code, message):
+            def mark(state, code, message, _reasons=reasons):
                 nonlocal status
                 if status == "READY":
                     status = state
-                reasons.append(Reason(code, message))
+                _reasons.append(Reason(code, message))
 
             if baseline_decisions[rid].status == "INVALID_CONTRACT":
                 status = "INVALID_CONTRACT"

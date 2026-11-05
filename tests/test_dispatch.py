@@ -2,7 +2,7 @@ import pandas as pd
 import pytest
 from quaxdim import evaluate_contract, SparkContractExecutor
 from quaxdim.runtime import _spark_modules
-from quaxdim.spark_backend import SparkBackendUnavailable
+from quaxdim.spark_backend import SparkBackendUnavailableError
 
 
 def test_dispatch_rejects_empty_or_unknown():
@@ -28,5 +28,5 @@ def test_importable_without_pyspark():
     assert SparkContractExecutor is not None
     try:
         _spark_modules()
-    except SparkBackendUnavailable as exc:
+    except SparkBackendUnavailableError as exc:
         assert "spark" in str(exc).lower()

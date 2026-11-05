@@ -11,14 +11,15 @@ from __future__ import annotations
 
 import csv
 import gzip
+import json
+import random
+import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from hashlib import blake2b, sha256
 from itertools import combinations
-import json
 from pathlib import Path
-import random
-import re
-from typing import Any, Mapping
+from typing import Any
 
 from .evaluator_registry import REGISTRY
 
@@ -661,7 +662,9 @@ def _duckdb_source_with_connection(conn, path, b):
                     ]
                 )
     cursor = conn.execute("SELECT " + ", ".join(exprs) + " FROM " + rel)
-    rec = dict(zip([d[0] for d in cursor.description], cursor.fetchone()))
+    rec = dict(
+        zip([d[0] for d in cursor.description], cursor.fetchone(), strict=True)
+    )
     for i, c in enumerate(selected):
         c["nulls"] = int(rec[f"_dq_null_{i}"] or 0)
         c["observations_profiled"] = int(rec["_dq_rows"])
@@ -893,9 +896,7 @@ def _single_asset_advice(aid, asset, b):
     recs = []
     cols = asset["columns"]
     sample = asset.get("sample", [])
-    backend = asset["backend"]
     rows = asset["rows"]
-    selection = [x for x in cols if x["observations_profiled"] is not None]
     for meta in cols:
         name = meta["name"]
         roles = meta["semantic_roles"]

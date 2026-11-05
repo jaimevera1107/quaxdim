@@ -6,10 +6,10 @@ A generated contract preserves field semantics, review source, and provenance.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from hashlib import sha256
-import json
-from typing import Any, Mapping
+from typing import Any
 
 from .optimized import _PORTABLE
 

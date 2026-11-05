@@ -5,8 +5,9 @@ rejected to prevent cross-engine coercion and incorrect relationships.
 """
 
 from __future__ import annotations
-from typing import Any, Mapping
-from typing import TYPE_CHECKING
+
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any
 
 from ._lazy import LazyModule
 
@@ -18,7 +19,6 @@ else:
 from .execution import ContractExecutor
 from .spark_backend import (
     SparkContractExecutor,
-    SparkBackendUnavailable,
     _spark_modules,
 )
 
@@ -28,7 +28,7 @@ def evaluate_contract(
     *,
     data: Mapping[str, Any],
     evidence: Mapping[str, Any] | None = None,
-):
+) -> ContractExecutionReport:
     """Execute on pandas or classic PySpark DataFrame, without converting rows.
 
     If Spark is not installed but a Spark-looking DataFrame is supplied,

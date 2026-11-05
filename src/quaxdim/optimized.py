@@ -7,16 +7,17 @@ are returned. Unsupported semantics are BLOCKED, never coerced into PASS.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
-from hashlib import sha256
 import csv
 import gzip
 import json
 import math
-from pathlib import Path
 import re
-from typing import Any, Mapping
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
+from hashlib import sha256
+from pathlib import Path
+from typing import Any
 
 _PORTABLE = {
     "builtin.presence",
@@ -631,14 +632,19 @@ def _duckdb_run(source, asset, ready, rules, metrics):
             cur = conn.execute(
                 f"SELECT {_as_aggregate_sql(batch, metrics, asset)} FROM {relation}"
             )
-            record = dict(zip([x[0] for x in cur.description], cur.fetchone()))
+            record = dict(
+                zip(
+                    [x[0] for x in cur.description],
+                    cur.fetchone(),
+                    strict=True,
+                )
+            )
             for i, r in enumerate(batch):
                 out[r["id"]] = (
                     int(record["_total"]),
                     _summary_counts(record, i),
                 )
         for p in [r for r in ready if r.cost == "shuffle"]:
-            rule = rules[p.rule_id]
             fields = {f["name"]: f for f in asset["fields"]}
             missing = (
                 "("

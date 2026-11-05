@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
+import json
+import numbers
+import re
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
-import json
-import numbers
-import re
-from typing import Callable, Any, Mapping
-from .catalog import CATALOG
-
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ._lazy import LazyModule
+from .catalog import CATALOG
 
 if TYPE_CHECKING:
     import numpy as np
@@ -23,7 +22,6 @@ else:
     np = LazyModule("numpy", extra="pandas")
     pd = LazyModule("pandas", extra="pandas")
 import yaml
-
 
 DIMENSIONS = frozenset(CATALOG)
 RULES = {

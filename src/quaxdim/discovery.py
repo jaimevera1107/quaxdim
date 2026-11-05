@@ -5,14 +5,14 @@ No user data or raw examples are emitted by the default report serializer.
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, field
-from datetime import date, datetime
-from hashlib import sha256
-from numbers import Real
-from typing import Any, Mapping
+
 import json
 import re
-from typing import TYPE_CHECKING
+from collections.abc import Mapping
+from dataclasses import dataclass
+from datetime import date, datetime
+from hashlib import sha256
+from typing import TYPE_CHECKING, Any
 
 from ._lazy import LazyModule
 
@@ -78,9 +78,11 @@ def _logical(s: pd.Series) -> tuple[str, str]:
         return "duration", str(dtype)
     if isinstance(dtype, pd.CategoricalDtype):
         return "categorical", str(dtype)
-    if pd.api.types.is_string_dtype(dtype) and dtype != object:
+    if pd.api.types.is_string_dtype(
+        dtype
+    ) and not pd.api.types.is_object_dtype(dtype):
         return "string", str(dtype)
-    if dtype == object:
+    if pd.api.types.is_object_dtype(dtype):
         sample = s.dropna().head(2000)
         kinds = {type(v) for v in sample}
         if not kinds:
@@ -440,8 +442,9 @@ def discover(
             rationale="",
             ev=None,
             caveats=(),
+            column=c,
         ):
-            fields = (c,)
+            fields = (column,)
             prop_id = _key((evaluator or kind) + ":" + title, fields)
             proposal = Recommendation(
                 prop_id,

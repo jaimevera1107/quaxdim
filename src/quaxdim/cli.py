@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 import sys
-from .advanced_discovery import discover_advanced, DiscoveryBudget
+from pathlib import Path
+
+from .advanced_discovery import DiscoveryBudget, discover_advanced
 
 
 def read_data(path: str):
@@ -187,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command in ("native-plan", "native-execute"):
             from .applicability import load_contract
-            from .optimized import plan_optimized, evaluate_optimized
+            from .optimized import evaluate_optimized, plan_optimized
 
             contract = load_contract(args.contract)
             params = {"data": {args.asset: args.data}, "engine": args.engine}
@@ -230,8 +231,9 @@ def main(argv: list[str] | None = None) -> int:
             print(profile(read_data(args.data)).to_string(index=False))
             return 0
         if args.command in ("suggest", "draft"):
-            from .discovery import discover
             import pandas as pd
+
+            from .discovery import discover
 
             path = Path(args.data)
             if path.suffix.lower() == ".csv":
@@ -265,8 +267,9 @@ def main(argv: list[str] | None = None) -> int:
                 )
             return 0
         if args.command == "plan":
-            from .applicability import ApplicabilityPlanner, load_contract
             import pandas as pd
+
+            from .applicability import ApplicabilityPlanner, load_contract
 
             contract = load_contract(args.contract)
             source_path = Path(args.data)
@@ -316,9 +319,10 @@ def main(argv: list[str] | None = None) -> int:
                 else 1
             )
         if args.command == "execute":
+            import pandas as pd
+
             from .applicability import load_contract
             from .execution import ContractExecutor
-            import pandas as pd
 
             contract = load_contract(args.contract)
             path = Path(args.data)

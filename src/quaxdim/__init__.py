@@ -5,8 +5,9 @@ because the top-level package was imported. Engines load only when requested.
 """
 
 from importlib import import_module
+from typing import Any
 
-from ._version import __version__
+from ._version import __version__ as __version__
 
 _EXPORTS = {
     **{
@@ -38,7 +39,7 @@ _EXPORTS = {
     },
     **{
         k: "spark_backend"
-        for k in ("SparkContractExecutor", "SparkBackendUnavailable")
+        for k in ("SparkContractExecutor", "SparkBackendUnavailableError")
     },
     "evaluate_contract": "runtime",
     **{
@@ -69,7 +70,7 @@ _EXPORTS = {
 __all__ = list(_EXPORTS)
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     if name in _EXPORTS:
         value = getattr(import_module("." + _EXPORTS[name], __name__), name)
         globals()[name] = value
@@ -77,5 +78,5 @@ def __getattr__(name: str):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-def __dir__():
+def __dir__() -> list[str]:
     return sorted(set(globals()) | set(_EXPORTS))
