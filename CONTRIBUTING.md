@@ -7,7 +7,8 @@ null/unknown policy, failure behavior, evidence needs and expected backend seman
 ## Local tests
 
 ```bash
-python -m pip install -e '.[test]'
+python -m pip install -e '.[dev]'
+python -m ruff format src tests && python -m ruff check src && python -m mypy src
 python -m pytest -q tests tests_validation tests_public
 ```
 
