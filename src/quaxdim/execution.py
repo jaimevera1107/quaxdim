@@ -632,11 +632,11 @@ class ContractExecutor:
             # values are failures regardless of the metric null policy.
         elif evaluator == "builtin.composite_uniqueness":
             unit = "record"
-            misses = np.column_stack(
+            key_misses = np.column_stack(
                 [_is_missing(df[c], fields[c], df) for c in names]
             ).any(axis=1)
             state = np.full(len(df), -2, dtype=np.int8)
-            valid = selected & ~misses
+            valid = selected & ~key_misses
             if valid.any():
                 frame_keys = df.loc[valid, names].copy()
                 for c in names:
@@ -663,7 +663,7 @@ class ContractExecutor:
                 "include_as_pass": 1,
                 "indeterminate": -1,
             }[missing_policy]
-            state[selected & misses] = nullstate
+            state[selected & key_misses] = nullstate
             unknown_scope_units = int(filter_unknown.sum())
         elif evaluator == "builtin.max_delay":
             unit = "record"
