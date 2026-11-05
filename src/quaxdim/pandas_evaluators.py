@@ -7,7 +7,7 @@ coercion.
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from decimal import Decimal
 from numbers import Real
 from typing import TYPE_CHECKING, Any
@@ -31,7 +31,7 @@ EXTRA_PANDAS_EVALUATORS = frozenset(
 )
 
 
-def _typed_key(x: Any):
+def _typed_key(x: Any) -> tuple[str, Any]:
     if isinstance(x, np.generic):
         x = x.item()
     if isinstance(x, (list, dict, set)):
@@ -58,7 +58,7 @@ def evaluate_pandas_extra(
     rule: Mapping[str, Any],
     selected: np.ndarray,
     missing_policy: str,
-    is_missing,
+    is_missing: Callable[..., np.ndarray],
 ) -> tuple[np.ndarray, str]:
     names = rule["target"]["fields"]
     expectation = rule["expectation"]

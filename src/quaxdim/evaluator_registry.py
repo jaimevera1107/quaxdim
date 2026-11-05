@@ -7,7 +7,9 @@ Spark.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -32,8 +34,15 @@ class EvaluatorSpec:
 
 
 def _spec(
-    name, levels, operators, nmin, nmax, dims, backends=("pandas",), **kw
-):
+    name: str,
+    levels: Iterable[str],
+    operators: Iterable[str],
+    nmin: int,
+    nmax: int | None,
+    dims: Iterable[str],
+    backends: Iterable[str] = ("pandas",),
+    **kw: Any,
+) -> EvaluatorSpec:
     return EvaluatorSpec(
         Capability(
             name,

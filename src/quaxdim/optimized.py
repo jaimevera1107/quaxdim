@@ -14,12 +14,14 @@ import gzip
 import json
 import math
 import re
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
+
+from ._types import EngineModule, SparkColumn
 
 _PORTABLE = {
     "builtin.presence",
@@ -38,7 +40,9 @@ _NULL_STATES = {
 _MAX_FUSED_RULES = 32  # Avoid unbounded expression plans on large schemas.
 
 
-def _batches(items, limit=_MAX_FUSED_RULES):
+def _batches(
+    items: Sequence[Any], limit: int = _MAX_FUSED_RULES
+) -> Iterator[Sequence[Any]]:
     for start in range(0, len(items), limit):
         yield items[start : start + limit]
 
@@ -135,7 +139,7 @@ class PlannedRule:
     reason: str
     cost: str
 
-    def to_dict(self):
+    def to_dict(self) -> dict[str, Any]:
         return {**asdict(self), "fields": list(self.fields)}
 
 
@@ -146,7 +150,7 @@ class OptimizedPlan:
     scan_groups: dict[str, dict[str, int]]
     warnings: tuple[str, ...] = ()
 
-    def to_dict(self):
+    def to_dict(self) -> dict[str, Any]:
         return {
             "engine_by_asset": self.engine_by_asset,
             "rules": [r.to_dict() for r in self.rules],
@@ -154,7 +158,7 @@ class OptimizedPlan:
             "warnings": list(self.warnings),
         }
 
-    def to_json(self, path=None):
+    def to_json(self, path: str | Path | None = None) -> str:
         s = json.dumps(self.to_dict(), ensure_ascii=False, indent=2)
         if path:
             Path(path).write_text(s + "\n", encoding="utf-8")
@@ -182,7 +186,7 @@ class OptimizedRuleResult:
     threshold: dict[str, Any] | None
     reasons: tuple[str, ...] = ()
 
-    def to_dict(self):
+    def to_dict(self) -> dict[str, Any]:
         return {
             **asdict(self),
             "dimension_ids": list(self.dimension_ids),
@@ -198,7 +202,7 @@ class OptimizedReport:
     plan: OptimizedPlan
     results: tuple[OptimizedRuleResult, ...]
 
-    def to_dict(self):
+    def to_dict(self) -> dict[str, Any]:
         return {
             "contract_version": self.contract_version,
             "contract_sha256": self.contract_sha256,
@@ -207,7 +211,7 @@ class OptimizedReport:
             "results": [r.to_dict() for r in self.results],
         }
 
-    def to_json(self, path=None):
+    def to_json(self, path: str | Path | None = None) -> str:
         s = json.dumps(
             self.to_dict(), ensure_ascii=False, indent=2, allow_nan=False
         )
@@ -216,13 +220,18 @@ class OptimizedReport:
         return s
 
     @property
-    def passed(self):
+    def passed(self) -> bool:
         return bool(self.results) and all(
             r.status == "PASS" for r in self.results
         )
 
 
-def _plan_rule(rule, metric, asset, engine: str) -> tuple[str, str]:
+def _plan_rule(
+    rule: Mapping[str, Any],
+    metric: Mapping[str, Any] | None,
+    asset: Mapping[str, Any] | None,
+    engine: str,
+) -> tuple[str, str]:
     if not metric:
         return "INVALID_CONTRACT", "Metric not declared"
     if not asset:
@@ -541,7 +550,7 @@ def _null_sql(name: str, definition: Mapping[str, Any]) -> str:
     return "(" + " OR ".join(pieces) + ")"
 
 
-def _sql_ok(rule, evaluator: str):
+def _sql_ok(rule: Mapping[str, Any], evaluator: str) -> str:
     names = rule["target"]["fields"]
     c = _esc(names[0])
     ex = rule["expectation"]
@@ -569,7 +578,11 @@ def _sql_ok(rule, evaluator: str):
     raise ValueError("unsupported evaluator")
 
 
-def _sql_state(rule, metric, fields):
+def _sql_state(
+    rule: Mapping[str, Any],
+    metric: Mapping[str, Any],
+    fields: Mapping[str, Any],
+) -> str:
     names = rule["target"]["fields"]
     evaluator = metric["evaluator"]
     missing = "(" + " OR ".join(_null_sql(n, fields[n]) for n in names) + ")"
@@ -580,7 +593,11 @@ def _sql_state(rule, metric, fields):
     return f"CASE WHEN {missing} THEN {policy} WHEN ({ok}) THEN 1 ELSE 0 END"
 
 
-def _as_aggregate_sql(rules, metrics, asset):
+def _as_aggregate_sql(
+    rules: Sequence[Mapping[str, Any]],
+    metrics: Mapping[str, Any],
+    asset: Mapping[str, Any],
+) -> str:
     fields = {f["name"]: f for f in asset["fields"]}
     exprs = ["COUNT(*) AS _total"]
     for index, r in enumerate(rules):
@@ -598,7 +615,7 @@ def _as_aggregate_sql(rules, metrics, asset):
     return ", ".join(exprs)
 
 
-def _summary_counts(report_row, i):
+def _summary_counts(report_row: Mapping[str, Any], i: int) -> dict[str, int]:
     return {
         "passed": int(report_row[f"_r{i}_pass"] or 0),
         "failed": int(report_row[f"_r{i}_fail"] or 0),
@@ -607,7 +624,13 @@ def _summary_counts(report_row, i):
     }
 
 
-def _duckdb_run(source, asset, ready, rules, metrics):
+def _duckdb_run(
+    source: Any,
+    asset: Mapping[str, Any],
+    ready: Sequence[PlannedRule],
+    rules: Mapping[str, Mapping[str, Any]],
+    metrics: Mapping[str, Any],
+) -> dict[str, tuple[int, dict[str, int]]]:
     import duckdb
 
     conn = duckdb.connect()
@@ -699,7 +722,12 @@ def _duckdb_run(source, asset, ready, rules, metrics):
         conn.close()
 
 
-def _polars_expr(rule, metric, fields, pl):
+def _polars_expr(
+    rule: Mapping[str, Any],
+    metric: Mapping[str, Any],
+    fields: Mapping[str, Any],
+    pl: EngineModule,
+) -> Any:
     names = rule["target"]["fields"]
     missing = pl.any_horizontal(
         [_polars_missing(n, fields[n], pl) for n in names]
@@ -744,7 +772,7 @@ def _polars_expr(rule, metric, fields, pl):
     )
 
 
-def _polars_missing(name, f, pl):
+def _polars_missing(name: str, f: Mapping[str, Any], pl: EngineModule) -> Any:
     x = pl.col(name)
     p = f.get("missing_policy", {})
     checks = [x.is_null()]
@@ -765,15 +793,21 @@ def _polars_missing(name, f, pl):
     return pl.any_horizontal(checks)
 
 
-def _polars_run(source, asset, ready, rules, metrics):
+def _polars_run(
+    source: Any,
+    asset: Mapping[str, Any],
+    ready: Sequence[PlannedRule],
+    rules: Mapping[str, Mapping[str, Any]],
+    metrics: Mapping[str, Any],
+) -> dict[str, tuple[int, dict[str, int]]]:
     import polars as pl
 
     if isinstance(source, (str, Path)):
-        p = str(source)
+        source_path = str(source)
         lf = (
-            pl.scan_parquet(p)
-            if p.lower().endswith(".parquet")
-            else pl.scan_csv(p, infer_schema_length=0)
+            pl.scan_parquet(source_path)
+            if source_path.lower().endswith(".parquet")
+            else pl.scan_csv(source_path, infer_schema_length=0)
         )
     else:
         lf = source.lazy() if isinstance(source, pl.DataFrame) else source
@@ -847,11 +881,13 @@ def _polars_run(source, asset, ready, rules, metrics):
     return out
 
 
-def _spark_col(name, F):
+def _spark_col(name: str, F: EngineModule) -> SparkColumn:
     return F.col("`" + name.replace("`", "``") + "`")
 
 
-def _spark_missing(name, f, F):
+def _spark_missing(
+    name: str, f: Mapping[str, Any], F: EngineModule
+) -> SparkColumn:
     x = _spark_col(name, F)
     p = f.get("missing_policy", {})
     checks = [x.isNull()]
@@ -874,7 +910,12 @@ def _spark_missing(name, f, F):
     return out
 
 
-def _spark_expr(rule, metric, fields, F):
+def _spark_expr(
+    rule: Mapping[str, Any],
+    metric: Mapping[str, Any],
+    fields: Mapping[str, Any],
+    F: EngineModule,
+) -> SparkColumn:
     names = rule["target"]["fields"]
     missing = _spark_missing(names[0], fields[names[0]], F)
     for name in names[1:]:
@@ -920,7 +961,13 @@ def _spark_expr(rule, metric, fields, F):
     )
 
 
-def _spark_run(source, asset, ready, rules, metrics):
+def _spark_run(
+    source: Any,
+    asset: Mapping[str, Any],
+    ready: Sequence[PlannedRule],
+    rules: Mapping[str, Mapping[str, Any]],
+    metrics: Mapping[str, Any],
+) -> dict[str, tuple[int, dict[str, int]]]:
     from pyspark.sql import functions as F
 
     if ".connect." in type(source).__module__ or source.isStreaming:
@@ -997,8 +1044,14 @@ def _spark_run(source, asset, ready, rules, metrics):
 
 
 def _csv_run(
-    source, asset, ready, rules, metrics, *, max_exact_keys=1_000_000
-):
+    source: Any,
+    asset: Mapping[str, Any],
+    ready: Sequence[PlannedRule],
+    rules: Mapping[str, Mapping[str, Any]],
+    metrics: Mapping[str, Any],
+    *,
+    max_exact_keys: int = 1_000_000,
+) -> dict[str, tuple[int, dict[str, int]]]:
     """One CSV read for all simple checks. Exact unique-key checking has a hard
     memory cap.
     """
@@ -1092,7 +1145,7 @@ def _csv_run(
     return {r.rule_id: (n, buckets[r.rule_id]) for r in ready}
 
 
-def _csv_missing(x, field):
+def _csv_missing(x: str, field: Mapping[str, Any]) -> bool:
     if x is None:
         return True
     p = field.get("missing_policy", {})
@@ -1104,7 +1157,9 @@ def _csv_missing(x, field):
     return y in p.get("tokens", [])
 
 
-def _status(lower, upper, threshold):
+def _status(
+    lower: float | None, upper: float | None, threshold: Mapping[str, Any]
+) -> str:
     if lower is None:
         return "NO_ELIGIBLE_DATA"
     op = threshold["operator"]

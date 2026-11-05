@@ -10,9 +10,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from hashlib import sha256
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .optimized import _PORTABLE
+
+if TYPE_CHECKING:
+    from .advanced_discovery import AdvancedDiscoveryReport
 
 
 class ApprovalError(ValueError):
@@ -20,13 +23,13 @@ class ApprovalError(ValueError):
 
 
 def build_reviewed_contract(
-    report,
+    report: AdvancedDiscoveryReport,
     *,
     approve: list[str],
     purpose: str,
     thresholds: Mapping[str, float | Mapping[str, Any]],
     semantic_overrides: Mapping[str, Mapping[str, Any]] | None = None,
-):
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """Return a schema-conformant contract for named recommendations only.
 
     `approve` contains stable recommendation IDs. `thresholds` maps each ID to

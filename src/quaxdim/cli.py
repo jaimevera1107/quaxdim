@@ -6,11 +6,15 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .advanced_discovery import DiscoveryBudget, discover_advanced
 
+if TYPE_CHECKING:
+    import pandas as pd
 
-def read_data(path: str):
+
+def read_data(path: str) -> pd.DataFrame:
     import pandas as pd
 
     suffix = Path(path).suffix.casefold()

@@ -15,13 +15,14 @@ import gzip
 import json
 import random
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from hashlib import blake2b, sha256
 from itertools import combinations
 from pathlib import Path
 from typing import Any
 
+from ._types import SparkFrame
 from .evaluator_registry import REGISTRY
 
 _RE_ID = re.compile(
@@ -84,7 +85,7 @@ class DiscoveryBudget:
         False  # local analysis; never in default report
     )
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.mode not in {"schema", "balanced", "deep"}:
             raise ValueError("mode must be schema, balanced or deep")
         for name in (
@@ -112,7 +113,7 @@ class ApproxCardinality:
         self.m = 1 << precision
         self.reg = bytearray(self.m)
 
-    def add(self, value: str):
+    def add(self, value: str) -> None:
         digest = int.from_bytes(
             blake2b(
                 value.encode("utf-8", "surrogatepass"), digest_size=8
@@ -166,7 +167,7 @@ class Advice:
     caveats: tuple[str, ...] = ()
     supported_backends: tuple[str, ...] = ()
 
-    def to_dict(self, reveal_configuration=False):
+    def to_dict(self, reveal_configuration: bool = False) -> dict[str, Any]:
         out = {
             "id": self.id,
             "kind": self.kind,
@@ -197,7 +198,7 @@ class AdvancedDiscoveryReport:
     warnings: tuple[str, ...] = ()
     budget: DiscoveryBudget = field(default_factory=DiscoveryBudget)
 
-    def to_dict(self, *, reveal_configuration: bool = False):
+    def to_dict(self, *, reveal_configuration: bool = False) -> dict[str, Any]:
         return {
             "version": "0.8.0.dev0",
             "budget": self.budget.__dict__,
@@ -208,7 +209,12 @@ class AdvancedDiscoveryReport:
             ],
         }
 
-    def to_json(self, path=None, *, reveal_configuration=False):
+    def to_json(
+        self,
+        path: str | Path | None = None,
+        *,
+        reveal_configuration: bool = False,
+    ) -> str:
         # Budget reveals no row values. All raw lexical samples are kept
         # internally.
         doc = json.dumps(
@@ -222,7 +228,7 @@ class AdvancedDiscoveryReport:
             Path(path).write_text(doc + "\n", encoding="utf-8")
         return doc
 
-    def capability_coverage(self):
+    def capability_coverage(self) -> dict[str, Any]:
         """Comparable recommendation-family counts; not a promise of equal data
         semantics.
         """
@@ -240,7 +246,7 @@ class AdvancedDiscoveryReport:
             }
         return out
 
-    def resource_plan(self):
+    def resource_plan(self) -> dict[str, Any]:
         """Auditable footprint; reports actual passes, not fabricated
         timing/cost.
         """
@@ -270,7 +276,7 @@ class AdvancedDiscoveryReport:
             }
         return output
 
-    def review_queue(self, priority=None):
+    def review_queue(self, priority: str | None = None) -> list[Advice]:
         rank = {"high": 0, "medium": 1, "low": 2}
         return sorted(
             (
@@ -281,7 +287,9 @@ class AdvancedDiscoveryReport:
             key=lambda x: (rank.get(x.priority, 3), x.cost, x.asset_id, x.id),
         )
 
-    def approved_plan(self, ids, *, purpose: str):
+    def approved_plan(
+        self, ids: Sequence[str], *, purpose: str
+    ) -> dict[str, Any]:
         """Review manifest, NOT an executable quality contract; requires typed
         bindings.
         """
@@ -305,22 +313,22 @@ class AdvancedDiscoveryReport:
 
 
 def _advice(
-    kind,
-    title,
-    asset_id,
-    fields,
+    kind: str,
+    title: str,
+    asset_id: str,
+    fields: Iterable[str],
     *,
-    dimension=None,
-    evaluator=None,
-    expectation=None,
-    confidence="low",
-    priority="medium",
-    cost="aggregate",
-    rationale="",
-    evidence=None,
-    prerequisites=(),
-    caveats=(),
-):
+    dimension: str | None = None,
+    evaluator: str | None = None,
+    expectation: dict[str, Any] | None = None,
+    confidence: str = "low",
+    priority: str = "medium",
+    cost: str = "aggregate",
+    rationale: str = "",
+    evidence: dict[str, Any] | None = None,
+    prerequisites: Iterable[str] = (),
+    caveats: Iterable[str] = (),
+) -> Advice:
     key = "\x1f".join((kind, evaluator or "", asset_id, *fields, title))
     rid = "recommend_" + sha256(key.encode("utf-8")).hexdigest()[:16]
     support = tuple(
@@ -366,7 +374,7 @@ def _advice(
     )
 
 
-def _roles(name: str, logical: str):
+def _roles(name: str, logical: str) -> list[str]:
     roles = []
     if _RE_ID.search(name):
         roles.append("identifier")
@@ -386,7 +394,7 @@ def _roles(name: str, logical: str):
     return roles or ["unknown"]
 
 
-def _logical_from_native(type_name: str):
+def _logical_from_native(type_name: str) -> str:
     t = type_name.lower()
     if any(
         t.startswith(prefix) for prefix in ("array", "list", "map", "struct")
@@ -428,7 +436,7 @@ def _logical_from_native(type_name: str):
     return "unknown"
 
 
-def _init_profile(name, physical, logical):
+def _init_profile(name: str, physical: str, logical: str) -> dict[str, Any]:
     return {
         "name": name,
         "physical_type": physical,
@@ -446,13 +454,17 @@ def _init_profile(name, physical, logical):
     }
 
 
-def _is_csv_path(path: Path):
+def _is_csv_path(path: Path) -> bool:
     return str(path).lower().endswith((".csv", ".tsv", ".csv.gz", ".tsv.gz"))
 
 
 def _read_csv_stream(
-    path: Path, b: DiscoveryBudget, *, delimiter=",", encoding="utf-8-sig"
-):
+    path: Path,
+    b: DiscoveryBudget,
+    *,
+    delimiter: str = ",",
+    encoding: str = "utf-8-sig",
+) -> dict[str, Any]:
     """A single sequential pass, O(columns + sample_rows*columns + bounded
     sketches).
     """
@@ -610,15 +622,17 @@ def _read_csv_stream(
         }
 
 
-def _q_sql(name):
+def _q_sql(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
-def _lit_sql(value):
+def _lit_sql(value: Any) -> str:
     return "'" + str(value).replace("'", "''") + "'"
 
 
-def _duckdb_source(path: Path, b: DiscoveryBudget, *, connection=None):
+def _duckdb_source(
+    path: Path, b: DiscoveryBudget, *, connection: Any = None
+) -> dict[str, Any]:
     try:
         import duckdb
     except ImportError as exc:
@@ -633,7 +647,9 @@ def _duckdb_source(path: Path, b: DiscoveryBudget, *, connection=None):
             conn.close()
 
 
-def _duckdb_source_with_connection(conn, path, b):
+def _duckdb_source_with_connection(
+    conn: Any, path: Path, b: DiscoveryBudget
+) -> dict[str, Any]:
     suffix = path.suffix.lower()
     if suffix not in {".csv", ".parquet"}:
         raise ValueError("DuckDB file discovery supports .csv and .parquet")
@@ -726,7 +742,7 @@ def _duckdb_source_with_connection(conn, path, b):
     }
 
 
-def _polars_source(source, b: DiscoveryBudget):
+def _polars_source(source: Any, b: DiscoveryBudget) -> dict[str, Any]:
     try:
         import polars as pl
     except ImportError as exc:
@@ -829,7 +845,7 @@ def _polars_source(source, b: DiscoveryBudget):
     }
 
 
-def _spark_source(df, b: DiscoveryBudget):
+def _spark_source(df: SparkFrame, b: DiscoveryBudget) -> dict[str, Any]:
     # Spark import is strictly optional, and schema mode schedules NO Spark
     # job.
     if ".connect." in type(df).__module__:
@@ -919,11 +935,13 @@ def _spark_source(df, b: DiscoveryBudget):
     }
 
 
-def _sample_valid(sample, col):
+def _sample_valid(sample: Iterable[Mapping[str, Any]], col: str) -> list[Any]:
     return [r[col] for r in sample if col in r and r[col] not in (None, "")]
 
 
-def _single_asset_advice(aid, asset, b):
+def _single_asset_advice(
+    aid: str, asset: Mapping[str, Any], b: DiscoveryBudget
+) -> list[Advice]:
     recs = []
     cols = asset["columns"]
     sample = asset.get("sample", [])
@@ -1418,7 +1436,7 @@ def _single_asset_advice(aid, asset, b):
     return recs
 
 
-def _name_stem(name):
+def _name_stem(name: str) -> str:
     return re.sub(
         r"(_(?:id|codigo|code|ref|key|nombre|name|descripcion|description))$",
         "",
@@ -1426,7 +1444,9 @@ def _name_stem(name):
     ).strip("_")
 
 
-def _relationship_advice(assets):
+def _relationship_advice(
+    assets: Mapping[str, Mapping[str, Any]],
+) -> list[Advice]:
     """Name/role affinity only; do not compare raw PII or claim referential
     validity.
     """

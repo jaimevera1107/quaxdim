@@ -18,6 +18,7 @@ from datetime import date, datetime, timezone
 from hashlib import sha256
 from typing import Any
 
+from ._types import SparkColumn, SparkFrame
 from .applicability import (
     BUILTIN_CAPABILITIES,
     ApplicabilityPlanner,
@@ -48,7 +49,7 @@ class SparkBackendUnavailableError(ImportError):
     """The optional PySpark dependency is unavailable."""
 
 
-def _spark_modules():
+def _spark_modules() -> tuple[Any, Any, Any]:
     try:
         from pyspark.sql import DataFrame
         from pyspark.sql import functions as F
@@ -60,13 +61,13 @@ def _spark_modules():
     return DataFrame, F, T
 
 
-def _col(name: str):
+def _col(name: str) -> SparkColumn:
     _, F, _ = _spark_modules()
     # Column names are data, never fragments of SQL expressions.
     return F.col("`" + name.replace("`", "``") + "`")
 
 
-def _value_is_missing(df, field):
+def _value_is_missing(df: SparkFrame, field: str) -> SparkColumn:
     _, F, T = _spark_modules()
     col = _col(field)
     result = col.isNull()
@@ -76,8 +77,11 @@ def _value_is_missing(df, field):
 
 
 def _pred(
-    df, predicates: Mapping[str, Any] | list[Mapping[str, Any]], *, mode: str
-):
+    df: SparkFrame,
+    predicates: Mapping[str, Any] | list[Mapping[str, Any]],
+    *,
+    mode: str,
+) -> SparkColumn:
     """Spark SQL three-valued predicate expression (no raw SQL / eval)."""
     _, F, _ = _spark_modules()
     if isinstance(predicates, Mapping):
@@ -123,12 +127,12 @@ def _pred(
     return out
 
 
-def _date_type(df, field: str) -> bool:
+def _date_type(df: SparkFrame, field: str) -> bool:
     _, _, T = _spark_modules()
     return isinstance(df.schema[field].dataType, T.DateType)
 
 
-def _scope_expr(df, rule):
+def _scope_expr(df: SparkFrame, rule: Mapping[str, Any]) -> SparkColumn:
     """Boolean or NULL; NULL means unknown eligibility, not excluded."""
     _, F, _ = _spark_modules()
     expr = F.lit(True)
@@ -150,7 +154,9 @@ def _scope_expr(df, rule):
     return expr
 
 
-def _missing_expr(df, field: str, declaration: Mapping[str, Any]):
+def _missing_expr(
+    df: SparkFrame, field: str, declaration: Mapping[str, Any]
+) -> SparkColumn:
     _, F, T = _spark_modules()
     c = _col(field)
     dtype = df.schema[field].dataType
@@ -194,21 +200,21 @@ def _missing_expr(df, field: str, declaration: Mapping[str, Any]):
     return F.coalesce(missing, F.lit(True))
 
 
-def _sum_bool(expr):
+def _sum_bool(expr: SparkColumn) -> SparkColumn:
     _, F, _ = _spark_modules()
     return F.coalesce(
         F.sum(F.when(expr, F.lit(1)).otherwise(F.lit(0))), F.lit(0)
     )
 
 
-def _aggregate(df, **expressions) -> dict[str, int]:
+def _aggregate(df: SparkFrame, **expressions: SparkColumn) -> dict[str, int]:
     row = df.agg(
         *[expr.alias(key) for key, expr in expressions.items()]
     ).first()
     return {key: int(row[key] or 0) for key in expressions}
 
 
-def _null_value_state(policy: str):
+def _null_value_state(policy: str) -> int:
     return {
         "exclude": -2,
         "include_as_failure": 0,
@@ -218,8 +224,13 @@ def _null_value_state(policy: str):
 
 
 def _state(
-    scope, value_ok, is_missing, *, null_policy: str, unknown_policy: str
-):
+    scope: SparkColumn,
+    value_ok: SparkColumn,
+    is_missing: SparkColumn,
+    *,
+    null_policy: str,
+    unknown_policy: str,
+) -> SparkColumn:
     _, F, _ = _spark_modules()
     # Treat selection unknown separately; it is not necessarily a bad value.
     raw = (
@@ -237,7 +248,9 @@ def _state(
     return raw
 
 
-def _summary_from_state(df, state, scope) -> dict[str, int]:
+def _summary_from_state(
+    df: SparkFrame, state: SparkColumn, scope: SparkColumn
+) -> dict[str, int]:
     _, F, _ = _spark_modules()
     return _aggregate(
         df,
@@ -252,7 +265,9 @@ def _summary_from_state(df, state, scope) -> dict[str, int]:
     )
 
 
-def _date_delay_expr(df, fields, rule):
+def _date_delay_expr(
+    df: SparkFrame, fields: Mapping[str, Any], rule: Mapping[str, Any]
+) -> tuple[SparkColumn, SparkColumn]:
     _, F, T = _spark_modules()
     ext = rule["expectation"].get("extensions", {})
     start, end, unit = ext["start"], ext["end"], ext["unit"]
@@ -314,7 +329,12 @@ class SparkContractExecutor:
             raise ValueError("max_catalog_literals must be positive")
         self.max_catalog_literals = max_catalog_literals
 
-    def _preflight(self, contract, data, evidence):
+    def _preflight(
+        self,
+        contract: Mapping[str, Any],
+        data: Mapping[str, Any],
+        evidence: Mapping[str, Any],
+    ) -> EvaluationPlan:
         # Reuse v0.4's robust contract/ID/dependency schema checks; these do
         # not need pandas data and the resulting pandas decisions are
         # discarded.
@@ -332,7 +352,12 @@ class SparkContractExecutor:
             status = "READY"
             reasons: list[Reason] = []
 
-            def mark(state, code, message, _reasons=reasons):
+            def mark(
+                state: str,
+                code: str,
+                message: str,
+                _reasons: list[Reason] = reasons,
+            ) -> None:
                 nonlocal status
                 if status == "READY":
                     status = state
@@ -724,7 +749,7 @@ class SparkContractExecutor:
         stack: list[Any] = []
         cycle_members: set[Any] = set()
 
-        def identify_cycles(rid):
+        def identify_cycles(rid: str) -> None:
             if graph_state.get(rid) == 1:
                 cycle_members.update(stack[stack.index(rid) :])
                 return
@@ -741,7 +766,7 @@ class SparkContractExecutor:
             identify_cycles(rid)
         memo: dict[Any, Any] = {}
 
-        def visit(rid):
+        def visit(rid: str) -> Decision:
             if rid in memo:
                 return memo[rid]
             d = index[rid]
@@ -794,7 +819,7 @@ class SparkContractExecutor:
         decisions = {d.rule_id: d for d in plan.decisions}
         completed: dict[Any, Any] = {}
 
-        def execute(rid):
+        def execute(rid: str) -> ContractRuleResult:
             if rid in completed:
                 return completed[rid]
             rule, d = rules[rid], decisions[rid]
@@ -855,12 +880,24 @@ class SparkContractExecutor:
         )
 
     @staticmethod
-    def _blocked(d, rule, status=None, reason=None):
+    def _blocked(
+        d: Decision,
+        rule: Mapping[str, Any],
+        status: str | None = None,
+        reason: str | None = None,
+    ) -> ContractRuleResult:
         from .execution import ContractExecutor
 
         return ContractExecutor._blocked(d, rule, status=status, reason=reason)
 
-    def _measure(self, rule, metric, asset, df, evidence):
+    def _measure(
+        self,
+        rule: Mapping[str, Any],
+        metric: Mapping[str, Any],
+        asset: Mapping[str, Any],
+        df: SparkFrame,
+        evidence: Mapping[str, Any],
+    ) -> ContractRuleResult:
         _, F, _ = _spark_modules()
         fields = {f["name"]: f for f in asset["fields"]}
         evaluator = metric["evaluator"]

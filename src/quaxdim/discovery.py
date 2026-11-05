@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from hashlib import sha256
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ._lazy import LazyModule
@@ -180,7 +181,10 @@ class DiscoveryReport:
         }
 
     def to_json(
-        self, path=None, *, include_configuration: bool = False
+        self,
+        path: str | Path | None = None,
+        *,
+        include_configuration: bool = False,
     ) -> str:
         result = json.dumps(
             self.to_dict(include_configuration=include_configuration),
@@ -453,18 +457,18 @@ def discover(
         const = "sample_only" if len(sample) < n else "all_rows"
 
         def suggest(
-            kind,
-            title,
-            dimension=None,
-            evaluator=None,
-            level=None,
-            expect=None,
-            conf="low",
-            rationale="",
-            ev=None,
-            caveats=(),
-            column=c,
-        ):
+            kind: str,
+            title: str,
+            dimension: str | None = None,
+            evaluator: str | None = None,
+            level: str | None = None,
+            expect: dict[str, Any] | None = None,
+            conf: str = "low",
+            rationale: str = "",
+            ev: dict[str, Any] | None = None,
+            caveats: Iterable[str] = (),
+            column: str = c,
+        ) -> None:
             fields = (column,)
             prop_id = _key((evaluator or kind) + ":" + title, fields)
             proposal = Recommendation(
@@ -825,7 +829,7 @@ def _discover_spark_schema(
         # go to driver.
         from pyspark.sql import functions as F
 
-        def col(n):
+        def col(n: str) -> Any:
             return F.col("`" + n.replace("`", "``") + "`")
 
         expressions = [F.count(F.lit(1)).alias("_dq_rows")]

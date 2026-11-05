@@ -639,7 +639,7 @@ class ApplicabilityPlanner:
                     else expectation.get("value")
                 )
 
-                def bounded(x):
+                def bounded(x: Any) -> bool:
                     try:
                         return (
                             not isinstance(x, bool)
