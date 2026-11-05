@@ -253,6 +253,10 @@ class DiscoveryReport:
                 continue
             if "pandas" not in s.supported_backends:
                 raise ValueError("Suggested evaluator not available on pandas")
+            if s.dimension is None:
+                raise ValueError(
+                    f"Selected recommendation has no dimension: {s.id}"
+                )
             dim = s.dimension
             dimensions[dim] = {
                 "id": dim,
@@ -300,7 +304,7 @@ class DiscoveryReport:
                         "level": s.target_level,
                         "fields": list(s.fields),
                     },
-                    "expectation": dict(s.expectation),
+                    "expectation": dict(s.expectation or {}),
                     "threshold": {"operator": "gte", "value": float(lim)},
                     "severity": "medium",
                     "failure_action": "report",
@@ -318,11 +322,11 @@ class DiscoveryReport:
             policy = policy_rules.setdefault(x.fields[0], {})
             policy["tokens"] = sorted(
                 set(policy.get("tokens", []))
-                | set(x.expectation.get("tokens", []))
+                | set((x.expectation or {}).get("tokens", []))
             )
-            if x.expectation.get("empty_string"):
+            if (x.expectation or {}).get("empty_string"):
                 policy["empty_string"] = True
-            if x.expectation.get("whitespace_only"):
+            if (x.expectation or {}).get("whitespace_only"):
                 policy["whitespace_only"] = True
         for f in self.profile:
             definition = {

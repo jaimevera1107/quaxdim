@@ -844,11 +844,13 @@ class ContractExecutor:
         observed = passed + failed
         measured_rate = (passed / observed) if observed else None
         coverage = (observed / eligible) if eligible else None
-        lower = passed / eligible if eligible else None
-        upper = (passed + unknown_in_scope) / eligible if eligible else None
+        lower: float | None = None
+        upper: float | None = None
         if not eligible:
             status = "NO_ELIGIBLE_DATA"
         else:
+            lower = passed / eligible
+            upper = (passed + unknown_in_scope) / eligible
             status = _failure_status(lower, upper, threshold)
         failed_rows = np.flatnonzero(
             (array == 0).any(axis=1) if array.ndim == 2 else (array == 0)

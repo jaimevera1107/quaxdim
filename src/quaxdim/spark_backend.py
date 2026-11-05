@@ -87,7 +87,7 @@ def _pred(
     out = F.lit(mode == "all")
     for p in predicates:
         field, op = p.get("field"), p.get("op")
-        if field not in df.columns:
+        if not isinstance(field, str) or field not in df.columns:
             raise EvaluationError(f"Unknown predicate field: {field}")
         c = _col(field)
         if op in {"exists", "not_null"}:
@@ -329,7 +329,8 @@ class SparkContractExecutor:
             rid, aid, mid = rule["id"], rule["asset_id"], rule["metric_id"]
             a, m, df = assets.get(aid), metrics.get(mid), data.get(aid)
             evaluator = m.get("evaluator", "") if m else ""
-            status, reasons = "READY", []
+            status = "READY"
+            reasons: list[Reason] = []
 
             def mark(state, code, message, _reasons=reasons):
                 nonlocal status
@@ -719,7 +720,9 @@ class SparkContractExecutor:
             x["id"]: x.get("dependencies", [])
             for x in contract.get("rules", [])
         }
-        graph_state, stack, cycle_members = {}, [], set()
+        graph_state: dict[Any, Any] = {}
+        stack: list[Any] = []
+        cycle_members: set[Any] = set()
 
         def identify_cycles(rid):
             if graph_state.get(rid) == 1:
@@ -736,7 +739,7 @@ class SparkContractExecutor:
 
         for rid in deps:
             identify_cycles(rid)
-        memo = {}
+        memo: dict[Any, Any] = {}
 
         def visit(rid):
             if rid in memo:
@@ -789,7 +792,7 @@ class SparkContractExecutor:
         rules = {r["id"]: r for r in contract["rules"]}
         assets = {a["id"]: a for a in contract["assets"]}
         decisions = {d.rule_id: d for d in plan.decisions}
-        completed = {}
+        completed: dict[Any, Any] = {}
 
         def execute(rid):
             if rid in completed:
@@ -1022,13 +1025,14 @@ class SparkContractExecutor:
         eligible = passed + failed + unknown
         observed = passed + failed
         measured = passed / observed if observed else None
-        lower = passed / eligible if eligible else None
-        upper = (passed + unknown) / eligible if eligible else None
-        status = (
-            _failure_status(lower, upper, rule["threshold"])
-            if eligible
-            else "NO_ELIGIBLE_DATA"
-        )
+        lower: float | None = None
+        upper: float | None = None
+        if eligible:
+            lower = passed / eligible
+            upper = (passed + unknown) / eligible
+            status = _failure_status(lower, upper, rule["threshold"])
+        else:
+            status = "NO_ELIGIBLE_DATA"
         return ContractRuleResult(
             rule_id=rule["id"],
             asset_id=rule["asset_id"],

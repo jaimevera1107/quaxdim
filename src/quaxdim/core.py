@@ -316,7 +316,8 @@ class QualityReport:
             raise ValueError("Weights must be finite positive numbers")
         denominator = sum(weights.values())
         return (
-            sum(active[k].pass_rate * weights[k] for k in active) / denominator
+            sum((active[k].pass_rate or 0.0) * weights[k] for k in active)
+            / denominator
         )
 
     @property
@@ -662,7 +663,7 @@ class QualitySuite:
             refname = p.get("reference")
             cols = list(check.columns)
             ref_cols = list(p.get("reference_columns", cols))
-            if refname not in references:
+            if not isinstance(refname, str) or refname not in references:
                 raise ValueError(
                     f"Missing expected population reference: {refname}"
                 )
@@ -682,11 +683,11 @@ class QualitySuite:
             observed = pd.MultiIndex.from_frame(data[cols].drop_duplicates())
             if not len(population):
                 return None, 0, "Population reference has no eligible entities"
-            found = int(population.isin(observed).sum())
+            covered = int(population.isin(observed).sum())
             return (
-                found / len(population),
+                covered / len(population),
                 len(population),
-                f"covered={found}; expected={len(population)}",
+                f"covered={covered}; expected={len(population)}",
             )
         raise ValueError(f"Unsupported dataset-level rule {check.rule}")
 
@@ -887,7 +888,7 @@ class QualitySuite:
             return valid & (target - total).abs().le(atol + rtol * total.abs())
         if rule == "foreign_key":
             refname = p.get("reference")
-            if refname not in refs:
+            if not isinstance(refname, str) or refname not in refs:
                 raise ValueError(f"Unknown reference dataset: {refname}")
             ref = refs[refname]
             ref_cols = p.get("reference_columns", list(c.columns))

@@ -267,7 +267,7 @@ def _plan_rule(rule, metric, asset, engine: str) -> tuple[str, str]:
     ):
         return "INVALID_CONTRACT", "Threshold must be between zero and one"
     if threshold["operator"] == "between":
-        upper = threshold.get("upper")
+        upper: Any = threshold.get("upper")
         if (
             type(upper) not in (int, float)
             or not threshold["value"] <= upper <= 1
@@ -1012,7 +1012,7 @@ def _csv_run(
         r.rule_id: {"passed": 0, "failed": 0, "unknown": 0, "excluded": 0}
         for r in ready
     }
-    key_counts = {r.rule_id: {} for r in key_rules}
+    key_counts: dict[str, dict[Any, int]] = {r.rule_id: {} for r in key_rules}
     n = 0
     with opener(path, "rt", encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(

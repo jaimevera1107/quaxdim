@@ -180,7 +180,7 @@ def main(argv: list[str] | None = None) -> int:
                 csv_delimiter=args.delimiter,
             )
             result.to_json(args.output)
-            breakdown = {}
+            breakdown: dict[str, int] = {}
             for rec in result.recommendations:
                 breakdown[rec.kind] = breakdown.get(rec.kind, 0) + 1
             print(
@@ -198,14 +198,22 @@ def main(argv: list[str] | None = None) -> int:
             contract = load_contract(args.contract)
             params = {"data": {args.asset: args.data}, "engine": args.engine}
             if args.command == "native-plan":
-                out = plan_optimized(contract, **params)
-                out.to_json(args.output)
-                print(json.dumps(out.to_dict(), ensure_ascii=False, indent=2))
-                return 0 if all(x.status == "READY" for x in out.rules) else 1
-            out = evaluate_optimized(
+                native_plan = plan_optimized(contract, **params)
+                native_plan.to_json(args.output)
+                print(
+                    json.dumps(
+                        native_plan.to_dict(), ensure_ascii=False, indent=2
+                    )
+                )
+                return (
+                    0
+                    if all(x.status == "READY" for x in native_plan.rules)
+                    else 1
+                )
+            native_report = evaluate_optimized(
                 contract, **params, max_exact_keys=args.max_exact_keys
             )
-            out.to_json(args.output)
+            native_report.to_json(args.output)
             print(
                 json.dumps(
                     [
@@ -215,17 +223,17 @@ def main(argv: list[str] | None = None) -> int:
                             "measured_rate": r.measured_rate,
                             "coverage": r.assessment_coverage,
                         }
-                        for r in out.results
+                        for r in native_report.results
                     ],
                     ensure_ascii=False,
                     indent=2,
                 )
             )
             print(
-                f"Overall: {'PASS' if out.passed else 'NOT PASS'}; "
+                f"Overall: {'PASS' if native_report.passed else 'NOT PASS'}; "
                 f"report={args.output}"
             )
-            return 0 if out.passed else 1
+            return 0 if native_report.passed else 1
         if args.command == "dimensions":
             from .catalog import list_dimensions
 
@@ -259,19 +267,20 @@ def main(argv: list[str] | None = None) -> int:
                     f"report={args.output}"
                 )
             else:
-                result = discovery.to_contract(
+                contract_doc = discovery.to_contract(
                     approve=args.approve, purpose=args.purpose
                 )
                 import yaml
 
                 Path(args.output).write_text(
                     yaml.safe_dump(
-                        result, allow_unicode=True, sort_keys=False
+                        contract_doc, allow_unicode=True, sort_keys=False
                     ),
                     encoding="utf-8",
                 )
+                rule_count = len(contract_doc["rules"])
                 print(
-                    f"Explicitly approved contract: {len(result['rules'])} "
+                    f"Explicitly approved contract: {rule_count} "
                     f"rules; file={args.output}"
                 )
             return 0
@@ -385,19 +394,19 @@ def main(argv: list[str] | None = None) -> int:
             if args.metadata
             else {}
         )
-        report = QualitySuite.from_yaml(args.config).run(
+        suite_report = QualitySuite.from_yaml(args.config).run(
             read_data(args.data),
             references=refs,
             metadata=metadata,
             as_of=args.as_of,
         )
-        report.to_json(args.output)
-        print(report.to_frame().to_string(index=False))
+        suite_report.to_json(args.output)
+        print(suite_report.to_frame().to_string(index=False))
         print(
-            f"Result: {'PASS' if report.passed else 'NOT PASS'}; "
+            f"Result: {'PASS' if suite_report.passed else 'NOT PASS'}; "
             f"report={args.output}"
         )
-        return 0 if report.passed else 1
+        return 0 if suite_report.passed else 1
     except (ValueError, OSError, TypeError, KeyError, ImportError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 2

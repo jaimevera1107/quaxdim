@@ -229,7 +229,7 @@ class AdvancedDiscoveryReport:
         out = {}
         for aid in self.assets:
             arr = [r for r in self.recommendations if r.asset_id == aid]
-            families = {}
+            families: dict[str, Any] = {}
             for r in arr:
                 key = r.evaluator or r.kind
                 families[key] = families.get(key, 0) + 1
@@ -478,7 +478,7 @@ def _read_csv_stream(
         profile = [_init_profile(f, "utf8", "string") for f in fields]
         byname = {c["name"]: c for c in profile}
         n = 0
-        reservoir = []
+        reservoir: list[Any] = []
         rng = random.Random(b.seed)
         sketches = (
             {
@@ -490,14 +490,14 @@ def _read_csv_stream(
             else {}
         )
         candidate_keys = list(sketches)[: b.max_candidate_keys]
-        exact = {c: set() for c in candidate_keys}
+        exact: dict[str, set[Any]] = {c: set() for c in candidate_keys}
         exact_overflow = set()
         num_missing = {f: 0 for f in selected}
         num_blank = {f: 0 for f in selected}
         num_sentinel = {f: 0 for f in selected}
         code_digits = {f: 0 for f in selected if _RE_ID.search(f)}
-        code_min = {f: None for f in code_digits}
-        code_max = {f: None for f in code_digits}
+        code_min: dict[str, int | None] = {f: None for f in code_digits}
+        code_max: dict[str, int | None] = {f: None for f in code_digits}
         malformed = 0
         if b.mode == "schema":
             return {
@@ -530,15 +530,16 @@ def _read_csv_stream(
                 if c in code_digits and value != "":
                     if _RE_CODE.fullmatch(value):
                         code_digits[c] += 1
+                    current_min, current_max = code_min[c], code_max[c]
                     code_min[c] = (
                         len(value)
-                        if code_min[c] is None
-                        else min(code_min[c], len(value))
+                        if current_min is None
+                        else min(current_min, len(value))
                     )
                     code_max[c] = (
                         len(value)
-                        if code_max[c] is None
-                        else max(code_max[c], len(value))
+                        if current_max is None
+                        else max(current_max, len(value))
                     )
                 if c in sketches and value != "":
                     sketches[c].add(value)
@@ -1382,7 +1383,7 @@ def _single_asset_advice(aid, asset, b):
                 ]
                 if len(valid) < 8:
                     continue
-                deps = {}
+                deps: dict[str, Any] = {}
                 inconsistent = False
                 for x, y in valid:
                     if x in deps and deps[x] != y:
@@ -1520,7 +1521,7 @@ def discover_advanced(
         raise ValueError("Asset IDs must match [A-Za-z][A-Za-z0-9_.-]*")
     public_assets = {}
     private_assets = {}
-    warnings = []
+    warnings: list[str] = []
     recommendations = []
     for aid, source in sources_map.items():
         selected_engine = engine
@@ -1625,10 +1626,10 @@ def discover_advanced(
             raise ValueError(f"Unknown baseline asset: {aid}")
         for c in public_assets[aid]["columns"]:
             previous = historical.get(c["name"], {})
-            old_n = previous.get("observations_profiled")
-            old_null = previous.get("nulls")
-            n = c["observations_profiled"]
-            null = c["nulls"]
+            old_n: Any = previous.get("observations_profiled")
+            old_null: Any = previous.get("nulls")
+            n: Any = c["observations_profiled"]
+            null: Any = c["nulls"]
             if (
                 all(
                     isinstance(x, int) and not isinstance(x, bool)

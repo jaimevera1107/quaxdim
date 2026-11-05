@@ -356,7 +356,8 @@ class ApplicabilityPlanner:
 
                 schema = json.loads(
                     files("quaxdim")
-                    .joinpath("schemas", "quality-contract.schema.json")
+                    .joinpath("schemas")
+                    .joinpath("quality-contract.schema.json")
                     .read_text(encoding="utf-8")
                 )
                 jsonschema.Draft202012Validator(
