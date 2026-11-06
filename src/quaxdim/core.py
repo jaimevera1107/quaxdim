@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import numbers
 import re
+import warnings
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -15,8 +16,10 @@ from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ._io import write_text_atomic
 from ._lazy import LazyModule
 from .catalog import CATALOG
+from .temporal import as_utc_instant, parse_declared_datetimes
 
 if TYPE_CHECKING:
     import numpy as np
@@ -250,7 +253,7 @@ class QualityReport:
             rows.append(
                 {
                     "dimension": dim,
-                    "dimension_es": CATALOG[dim].name_es
+                    "dimension_name": CATALOG[dim].name
                     if dim in CATALOG
                     else dim,
                     "status": status,
@@ -354,12 +357,18 @@ class QualityReport:
             data, ensure_ascii=False, indent=2, allow_nan=False
         )
         if path is not None:
-            Path(path).write_text(output + "\n", encoding="utf-8")
+            write_text_atomic(path, output + "\n")
         return output
 
 
 class QualitySuite:
-    """A set of declarative checks evaluated on a pandas DataFrame."""
+    """A set of declarative checks evaluated on a pandas DataFrame.
+
+    .. deprecated:: 0.8.0
+        Use reviewed contracts with :func:`quaxdim.evaluate_contract` or
+        :func:`quaxdim.evaluate_optimized`. ``QualitySuite`` will be removed
+        in a future major release.
+    """
 
     def __init__(
         self,
@@ -373,6 +382,12 @@ class QualitySuite:
             checks: Initial checks; identifiers must be unique.
             max_failure_examples: Maximum failure examples kept per check.
         """
+        warnings.warn(
+            "QualitySuite is deprecated; use reviewed contracts with "
+            "evaluate_contract() or evaluate_optimized()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.checks = list(checks or [])
         self.max_failure_examples = max_failure_examples
         self._callbacks: dict[
@@ -386,9 +401,17 @@ class QualitySuite:
             raise ValueError("Check ids must be unique")
 
     def add(self, check: Check) -> QualitySuite:
-        """Add a check and return the suite, to allow chaining."""
+        """Add a check and return the suite, to allow chaining.
+
+        The suite is left unchanged when the check is rejected (audit
+        finding H3): validation happens before mutation.
+
+        Raises:
+            ValueError: If ``check.id`` already exists in the suite.
+        """
+        if any(existing.id == check.id for existing in self.checks):
+            raise ValueError(f"Check id already exists: {check.id}")
         self.checks.append(check)
-        self._ensure_unique_ids()
         return self
 
     def register(
@@ -417,13 +440,13 @@ class QualitySuite:
 
     def to_yaml(self, path: str | Path) -> None:
         """Write the suite to a YAML file."""
-        Path(path).write_text(
+        write_text_atomic(
+            path,
             yaml.safe_dump(
                 {"checks": [c.to_dict() for c in self.checks]},
                 allow_unicode=True,
                 sort_keys=False,
             ),
-            encoding="utf-8",
         )
 
     def run(
@@ -622,7 +645,13 @@ class QualitySuite:
             )
             return float(ok), 1, f"row_count={len(data)}"
         if check.rule == "schema_columns":
-            expected = set(p["expected"])
+            expected_list = list(p["expected"])
+            if len(set(expected_list)) != len(expected_list):
+                raise ValueError("schema_columns: 'expected' repeats a name")
+            if len(set(data.columns)) != len(data.columns):
+                # Set comparison would hide a duplicated header (audit H4).
+                raise ValueError("Data has duplicate column names")
+            expected = set(expected_list)
             actual = set(data.columns)
             ok = expected <= actual and (
                 not p.get("exact", False) or expected == actual
@@ -931,12 +960,23 @@ class QualitySuite:
             left = pd.MultiIndex.from_frame(data[list(c.columns)])
             return pd.Series(left.isin(right), index=data.index)
         if rule in {"delay_days", "freshness_days"}:
-            dt = pd.to_datetime(s, errors="coerce", utc=True)
+            # Same guarantees as the native executor: declared format and
+            # zone, no inference; unparseable values abort the check
+            # (ERROR) instead of being counted as late (audit finding C2).
+            timezone = p.get("timezone")
+            dt = parse_declared_datetimes(
+                s, date_format=p.get("date_format"), timezone=timezone
+            )
             if rule == "delay_days":
                 col = p["arrival_column"]
                 if col not in data.columns:
                     raise ValueError(f"Missing arrival column: {col}")
-                arrival = pd.to_datetime(data[col], errors="coerce", utc=True)
+                arrival = parse_declared_datetimes(
+                    data[col],
+                    date_format=p.get("arrival_date_format")
+                    or p.get("date_format"),
+                    timezone=p.get("arrival_timezone") or timezone,
+                )
                 days = (arrival - dt).dt.total_seconds() / 86400
                 return (
                     dt.notna()
@@ -944,9 +984,7 @@ class QualitySuite:
                     & days.ge(0)
                     & days.le(p["max_days"])
                 )
-            current = pd.Timestamp(now)
-            if current.tzinfo is None:
-                current = current.tz_localize("UTC")
+            current = as_utc_instant(now, timezone)
             days = (current - dt).dt.total_seconds() / 86400
             return dt.notna() & days.ge(0) & days.le(p["max_days"])
         if rule == "custom":

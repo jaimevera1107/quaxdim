@@ -55,11 +55,11 @@ def test_csv_stream_and_deep_recommendations(tmp_path):
     assert a["backend"] == "csv_stream" and a["rows"] == 500
     assert a["columns"][0]["physical_type"] == "utf8"
     assert any(
-        x.kind == "hypothesis" and "clave compuesta" in x.title
+        x.kind == "hypothesis" and "composite key" in x.title
         for x in report.recommendations
     )
     assert any(
-        x.kind == "hypothesis" and "dependencia" in x.title
+        x.kind == "hypothesis" and "dependency" in x.title
         for x in report.recommendations
     )
     assert (
@@ -268,7 +268,7 @@ def test_baseline_drift_is_hypothesis(tmp_path):
     p.write_text("USER_ID,VAL\na,1\nb\nc,3\n", encoding="utf-8")
     baseline = {"dataset": {"VAL": {"nulls": 0, "observations_profiled": 300}}}
     r = discover_advanced(p, baseline_profiles=baseline)
-    drift = [x for x in r.recommendations if "cambio de ausencias" in x.title]
+    drift = [x for x in r.recommendations if "change in missing values" in x.title]
     assert drift and drift[0].kind == "hypothesis"
     assert drift[0].evidence["difference_pp"] > 10
     assert r.resource_plan()["dataset"]["full_passes"] == 1

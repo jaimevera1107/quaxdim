@@ -412,6 +412,42 @@
         "adapter": {
           "type": "string"
         },
+        "read_options": {
+          "type": "object",
+          "description": "How a CSV source is read; part of the contract so discovery and every engine read the same table.",
+          "required": [],
+          "properties": {
+            "delimiter": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1
+            },
+            "encoding": {
+              "type": "string",
+              "minLength": 1
+            },
+            "quote_char": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1
+            },
+            "header": {
+              "const": true
+            },
+            "malformed_rows": {
+              "type": "string",
+              "enum": [
+                "error"
+              ]
+            },
+            "max_field_chars": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 268435456
+            }
+          },
+          "additionalProperties": false
+        },
         "version": {
           "type": "string"
         },

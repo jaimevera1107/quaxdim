@@ -9,19 +9,42 @@ are returned. Unsupported semantics are BLOCKED, never coerced into PASS.
 
 from __future__ import annotations
 
-import csv
-import gzip
 import json
 import math
 import re
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
+from ._io import describe_source, write_text_atomic
 from ._types import EngineModule, SparkColumn
+from ._version import __version__
+from .bounds import rate_bounds
+from .contract_validation import (
+    identity_key_problem,
+    unknown_dimension_ids,
+    validate_contract_structure,
+)
+from .csv_dialect import (
+    CsvDialectError,
+    CsvReadOptions,
+    duckdb_csv_relation,
+    is_csv_path,
+    iter_records,
+    read_header,
+    validate_structure,
+)
+from .evaluator_registry import bound_model
+from .missingness import (
+    NEVER_NULL_SENTINEL,
+    empty_string_is_missing,
+    infinities_are_invalid,
+    is_float_type,
+    nan_is_missing,
+)
 
 _PORTABLE = {
     "builtin.presence",
@@ -172,7 +195,7 @@ class OptimizedPlan:
         """
         s = json.dumps(self.to_dict(), ensure_ascii=False, indent=2)
         if path:
-            Path(path).write_text(s + "\n", encoding="utf-8")
+            write_text_atomic(path, s + "\n")
         return s
 
 
@@ -217,6 +240,9 @@ class OptimizedReport:
     generated_at: str
     plan: OptimizedPlan
     results: tuple[OptimizedRuleResult, ...]
+    # Audit trail: which library produced the verdicts and on which inputs.
+    library_version: str = __version__
+    sources: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serialisable dictionary."""
@@ -224,6 +250,8 @@ class OptimizedReport:
             "contract_version": self.contract_version,
             "contract_sha256": self.contract_sha256,
             "generated_at": self.generated_at,
+            "library_version": self.library_version,
+            "sources": {k: dict(v) for k, v in self.sources.items()},
             "plan": self.plan.to_dict(),
             "results": [r.to_dict() for r in self.results],
         }
@@ -238,7 +266,7 @@ class OptimizedReport:
             self.to_dict(), ensure_ascii=False, indent=2, allow_nan=False
         )
         if path:
-            Path(path).write_text(s + "\n", encoding="utf-8")
+            write_text_atomic(path, s + "\n")
         return s
 
     @property
@@ -254,11 +282,18 @@ def _plan_rule(
     metric: Mapping[str, Any] | None,
     asset: Mapping[str, Any] | None,
     engine: str,
+    dimensions: Mapping[str, Any],
 ) -> tuple[str, str]:
     if not metric:
         return "INVALID_CONTRACT", "Metric not declared"
     if not asset:
         return "INVALID_CONTRACT", "Asset not declared"
+    missing_dimensions = unknown_dimension_ids(metric, dimensions)
+    if missing_dimensions:
+        return (
+            "INVALID_CONTRACT",
+            f"Metric refers to undeclared dimensions: {missing_dimensions}",
+        )
     evaluator = metric.get("evaluator")
     if evaluator not in _PORTABLE:
         return "UNSUPPORTED", "Evaluator not in portable v0.8 subset"
@@ -364,6 +399,9 @@ def _plan_rule(
     elif evaluator == "builtin.composite_uniqueness":
         if rule.get("expectation", {}).get("operator") != "composite_unique":
             return "INVALID_CONTRACT", "Uniqueness requires composite_unique"
+        key_problem = identity_key_problem(rule)
+        if key_problem:
+            return "INVALID_CONTRACT", key_problem
         if any(
             _logical_type(defs[x]["logical_type"]) == "unsupported"
             for x in fields
@@ -458,6 +496,32 @@ def _plan_rule(
     return "READY", "Safe portable subset"
 
 
+def _read_options_problem(
+    asset: Mapping[str, Any] | None, source: Any, engine: str
+) -> tuple[str, str] | None:
+    """Return a blocking verdict when a CSV cannot be read as declared."""
+    if asset is None:
+        return None
+    if not is_csv_path(source):
+        if asset.get("read_options"):
+            return (
+                "INVALID_CONTRACT",
+                "read_options are only valid for CSV sources",
+            )
+        return None
+    try:
+        options = CsvReadOptions.from_asset(asset, path=source)
+    except CsvDialectError as exc:
+        return "INVALID_CONTRACT", f"Invalid read_options: {exc}"
+    if options.engine_encoding(engine) is None:
+        return (
+            "UNSUPPORTED",
+            f"Engine {engine} cannot decode {options.encoding}; "
+            "use engine='csv_stream'",
+        )
+    return None
+
+
 def plan_optimized(
     contract: Mapping[str, Any],
     *,
@@ -466,9 +530,16 @@ def plan_optimized(
 ) -> OptimizedPlan:
     """Preflight without running expensive data actions.
 
-    Nothing is approved implicitly.
+    Nothing is approved implicitly. The contract first passes the same
+    structural validation used by every other engine.
+
+    Raises:
+        ContractError: If the contract is structurally invalid (schema
+            violation or repeated identifiers).
     """
+    validate_contract_structure(contract)
     assets = {a["id"]: a for a in contract.get("assets", [])}
+    dimensions = {d["id"]: d for d in contract.get("dimensions", [])}
     metrics = {m["id"]: m for m in contract.get("metrics", [])}
     if not data:
         raise ValueError("At least one source required")
@@ -482,6 +553,10 @@ def plan_optimized(
             or getattr(src, "isStreaming", False)
         )
     }
+    read_problems = {
+        aid: _read_options_problem(assets.get(aid), src, engines[aid])
+        for aid, src in data.items()
+    }
     rules = []
     for rule in contract.get("rules", []):
         aid = rule.get("asset_id", "")
@@ -490,7 +565,12 @@ def plan_optimized(
         if chosen is None:
             status, reason = "NEEDS_DATA", "Asset source not provided"
         else:
-            status, reason = _plan_rule(rule, metric, assets.get(aid), chosen)
+            status, reason = _plan_rule(
+                rule, metric, assets.get(aid), chosen, dimensions
+            )
+            problem = read_problems.get(aid)
+            if status == "READY" and problem is not None:
+                status, reason = problem
             if aid in unsafe_spark:
                 status, reason = (
                     "UNSUPPORTED",
@@ -546,17 +626,29 @@ def plan_optimized(
     )
 
 
-def _null_sql(name: str, definition: Mapping[str, Any]) -> str:
+def _null_sql(
+    name: str, definition: Mapping[str, Any], *, is_float: bool
+) -> str:
+    """Build the SQL missingness predicate of one field.
+
+    Args:
+        name: Column name.
+        definition: Contract field declaration.
+        is_float: Whether the *engine* type is floating point; NaN detection
+            follows the real type, not the declared ``physical_type``.
+    """
     c = _esc(name)
     p = definition.get("missing_policy", {})
     pieces = [f"{c} IS NULL"]
-    if any(
-        x in str(definition.get("physical_type", "")).lower()
-        for x in ("float", "double", "real")
-    ):
-        pieces.append(f"isnan({c})")
+    if is_float and nan_is_missing(p):
+        # ``isnan`` alone is not enough: DuckDB 2.0 returned false for NaN
+        # read from Parquet while ``isfinite``/``isinf`` were both false.
+        # "Neither finite nor infinite" identifies NaN on every version.
+        pieces.append(
+            f"(isnan({c}) OR (NOT isfinite({c}) AND NOT isinf({c})))"
+        )
     if _logical_type(definition["logical_type"]) == "string":
-        if p.get("empty_string"):
+        if empty_string_is_missing(p):
             pieces.append(f"{c} = ''")
         if p.get("whitespace_only"):
             pieces.append(f"TRIM({c}) = ''")
@@ -605,14 +697,31 @@ def _sql_state(
     rule: Mapping[str, Any],
     metric: Mapping[str, Any],
     fields: Mapping[str, Any],
+    float_fields: frozenset[str],
 ) -> str:
     names = rule["target"]["fields"]
     evaluator = metric["evaluator"]
-    missing = "(" + " OR ".join(_null_sql(n, fields[n]) for n in names) + ")"
+    missing = (
+        "("
+        + " OR ".join(
+            _null_sql(n, fields[n], is_float=n in float_fields) for n in names
+        )
+        + ")"
+    )
+    invalid = " OR ".join(
+        f"isinf({_esc(n)})"
+        for n in names
+        if n in float_fields
+        and infinities_are_invalid(fields[n].get("missing_policy", {}))
+    )
     if evaluator == "builtin.presence":
+        if invalid:
+            return f"CASE WHEN {missing} OR {invalid} THEN 0 ELSE 1 END"
         return f"CASE WHEN {missing} THEN 0 ELSE 1 END"
     policy = _NULL_STATES[metric.get("null_policy", "indeterminate")]
     ok = _sql_ok(rule, evaluator)
+    if invalid:
+        ok = f"({ok}) AND NOT ({invalid})"
     return f"CASE WHEN {missing} THEN {policy} WHEN ({ok}) THEN 1 ELSE 0 END"
 
 
@@ -620,11 +729,12 @@ def _as_aggregate_sql(
     rules: Sequence[Mapping[str, Any]],
     metrics: Mapping[str, Any],
     asset: Mapping[str, Any],
+    float_fields: frozenset[str],
 ) -> str:
     fields = {f["name"]: f for f in asset["fields"]}
     exprs = ["COUNT(*) AS _total"]
     for index, r in enumerate(rules):
-        state = _sql_state(r, metrics[r["metric_id"]], fields)
+        state = _sql_state(r, metrics[r["metric_id"]], fields, float_fields)
         for code, label in (
             (1, "pass"),
             (0, "fail"),
@@ -647,6 +757,18 @@ def _summary_counts(report_row: Mapping[str, Any], i: int) -> dict[str, int]:
     }
 
 
+def _fetch_one(cursor: Any) -> tuple[Any, ...]:
+    """Return the single row of an aggregate query, failing loudly if absent.
+
+    An aggregate without ``GROUP BY`` always yields one row; ``None`` means
+    the engine misbehaved and must not be read as zero counts.
+    """
+    row = cursor.fetchone()
+    if row is None:
+        raise RuntimeError("Aggregate query returned no row")
+    return tuple(row)
+
+
 def _duckdb_run(
     source: Any,
     asset: Mapping[str, Any],
@@ -658,19 +780,26 @@ def _duckdb_run(
 
     conn = duckdb.connect()
     try:
-        suffix = str(source).lower()
-        quoted = _lit(str(source))
-        relation = (
-            f"read_parquet({quoted})"
-            if suffix.endswith(".parquet")
-            else f"read_csv({quoted}, all_varchar=true, sample_size=20480)"
+        if is_csv_path(source):
+            # Strict, declared dialect: no sniffing, malformed rows raise,
+            # and empty fields reach the missingness policy as "" (DuckDB
+            # would otherwise map them to NULL).
+            options = CsvReadOptions.from_asset(asset, path=source)
+            relation = duckdb_csv_relation(
+                source,
+                options,
+                read_header(source, options),
+                null_sentinel=NEVER_NULL_SENTINEL,
+            )
+        else:
+            relation = f"read_parquet({_lit(str(source))})"
+        described = conn.execute(
+            f"DESCRIBE SELECT * FROM {relation}"
+        ).fetchall()
+        actual = {r[0]: _logical_type(str(r[1])) for r in described}
+        float_fields = frozenset(
+            str(r[0]) for r in described if is_float_type(str(r[1]))
         )
-        actual = {
-            r[0]: _logical_type(str(r[1]))
-            for r in conn.execute(
-                f"DESCRIBE SELECT * FROM {relation}"
-            ).fetchall()
-        }
         for r in ready:
             for name in r.fields:
                 if name not in actual:
@@ -688,14 +817,12 @@ def _duckdb_run(
         simple = [rules[r.rule_id] for r in ready if r.cost == "aggregate"]
         out = {}
         for batch in _batches(simple):
-            cur = conn.execute(
-                f"SELECT {_as_aggregate_sql(batch, metrics, asset)} FROM "
-                f"{relation}"
-            )
+            aggregates = _as_aggregate_sql(batch, metrics, asset, float_fields)
+            cur = conn.execute(f"SELECT {aggregates} FROM {relation}")
             record = dict(
                 zip(
                     [x[0] for x in cur.description],
-                    cur.fetchone(),
+                    _fetch_one(cur),
                     strict=True,
                 )
             )
@@ -708,7 +835,10 @@ def _duckdb_run(
             fields = {f["name"]: f for f in asset["fields"]}
             missing = (
                 "("
-                + " OR ".join(_null_sql(n, fields[n]) for n in p.fields)
+                + " OR ".join(
+                    _null_sql(n, fields[n], is_float=n in float_fields)
+                    for n in p.fields
+                )
                 + ")"
             )
             keys = ", ".join(_esc(n) for n in p.fields)
@@ -717,14 +847,14 @@ def _duckdb_run(
                 f"AS missing "
                 f"FROM {relation}"
             )
-            total, n_missing = conn.execute(q).fetchone()
+            total, n_missing = _fetch_one(conn.execute(q))
             dupq = (
                 f"SELECT COALESCE(SUM(CASE WHEN n>1 THEN n ELSE 0 END),0) "
                 f"FROM "
                 f"(SELECT {keys}, COUNT(*) n FROM {relation} WHERE NOT "
                 f"{missing} GROUP BY {keys})"
             )
-            duplicates = int(conn.execute(dupq).fetchone()[0])
+            duplicates = int(_fetch_one(conn.execute(dupq))[0])
             nullstate = _NULL_STATES[
                 metrics[p.metric_id].get("null_policy", "indeterminate")
             ]
@@ -750,13 +880,26 @@ def _polars_expr(
     metric: Mapping[str, Any],
     fields: Mapping[str, Any],
     pl: EngineModule,
+    float_fields: frozenset[str],
 ) -> Any:
     names = rule["target"]["fields"]
     missing = pl.any_horizontal(
-        [_polars_missing(n, fields[n], pl) for n in names]
+        [
+            _polars_missing(n, fields[n], pl, is_float=n in float_fields)
+            for n in names
+        ]
     )
     evaluator = metric["evaluator"]
+    invalid_checks = [
+        pl.col(n).is_infinite()
+        for n in names
+        if n in float_fields
+        and infinities_are_invalid(fields[n].get("missing_policy", {}))
+    ]
+    invalid = pl.any_horizontal(invalid_checks) if invalid_checks else None
     if evaluator == "builtin.presence":
+        if invalid is not None:
+            return pl.when(missing | invalid).then(0).otherwise(1)
         return pl.when(missing).then(0).otherwise(1)
     a = pl.col(names[0])
     ex = rule["expectation"]
@@ -786,6 +929,8 @@ def _polars_expr(
         ok = a.str.contains("^(?:" + ex["pattern"] + ")$")
     else:
         raise ValueError("Unknown portable evaluator")
+    if invalid is not None:
+        ok = ok & ~invalid
     return (
         pl.when(missing)
         .then(_NULL_STATES[metric.get("null_policy", "indeterminate")])
@@ -795,17 +940,16 @@ def _polars_expr(
     )
 
 
-def _polars_missing(name: str, f: Mapping[str, Any], pl: EngineModule) -> Any:
+def _polars_missing(
+    name: str, f: Mapping[str, Any], pl: EngineModule, *, is_float: bool
+) -> Any:
     x = pl.col(name)
     p = f.get("missing_policy", {})
     checks = [x.is_null()]
-    if any(
-        t in str(f.get("physical_type", "")).lower()
-        for t in ("float", "double")
-    ):
+    if is_float and nan_is_missing(p):
         checks.append(x.is_nan())
     if _logical_type(f["logical_type"]) == "string":
-        if p.get("empty_string"):
+        if empty_string_is_missing(p):
             checks.append(x == "")
         if p.get("whitespace_only"):
             checks.append(x.str.strip_chars() == "")
@@ -814,6 +958,41 @@ def _polars_missing(name: str, f: Mapping[str, Any], pl: EngineModule) -> Any:
         q = x.str.strip_chars() if p.get("normalization") == "trim" else x
         checks.append(q.is_in(tokens))
     return pl.any_horizontal(checks)
+
+
+def _polars_scan_text_csv(
+    pl: EngineModule, path: str, options: CsvReadOptions
+) -> Any:
+    """Scan a CSV as text, keeping empty fields as ``""`` on Polars 1 and 2.
+
+    Polars 1 exposes ``missing_utf8_is_empty_string``; Polars 2 replaced it
+    with ``empty_string_is_null``. Either way empty fields must reach the
+    missingness policy as ``""``, as in the other readers.
+    """
+    import inspect
+
+    encoding = options.engine_encoding("polars")
+    if encoding is None:
+        raise CsvDialectError(
+            f"Polars cannot decode {options.encoding}; use csv_stream"
+        )
+    parameters = inspect.signature(pl.scan_csv).parameters
+    kwargs: dict[str, Any] = {
+        "infer_schema_length": 0,
+        "separator": options.delimiter,
+        "quote_char": options.quote_char,
+        "encoding": encoding,
+        "has_header": True,
+    }
+    if "empty_string_is_null" in parameters:
+        kwargs["empty_string_is_null"] = False
+    elif "missing_utf8_is_empty_string" in parameters:
+        kwargs["missing_utf8_is_empty_string"] = True
+    else:
+        raise RuntimeError(
+            "Unsupported Polars version: cannot preserve empty CSV fields"
+        )
+    return pl.scan_csv(path, **kwargs)
 
 
 def _polars_run(
@@ -825,16 +1004,22 @@ def _polars_run(
 ) -> dict[str, tuple[int, dict[str, int]]]:
     import polars as pl
 
-    if isinstance(source, (str, Path)):
+    if is_csv_path(source):
         source_path = str(source)
-        lf = (
-            pl.scan_parquet(source_path)
-            if source_path.lower().endswith(".parquet")
-            else pl.scan_csv(source_path, infer_schema_length=0)
-        )
+        options = CsvReadOptions.from_asset(asset, path=source_path)
+        # Polars pads short rows with empty values and checks headers
+        # loosely, so the structure is verified first (one extra sequential
+        # pass, constant memory).
+        validate_structure(source_path, options)
+        lf = _polars_scan_text_csv(pl, source_path, options)
+    elif isinstance(source, (str, Path)):
+        lf = pl.scan_parquet(str(source))
     else:
         lf = source.lazy() if isinstance(source, pl.DataFrame) else source
     schema = lf.collect_schema()
+    float_fields = frozenset(
+        str(n) for n, dtype in schema.items() if dtype.is_float()
+    )
     decl = {f["name"]: f for f in asset["fields"]}
     for r in ready:
         for name in r.fields:
@@ -849,7 +1034,9 @@ def _polars_run(
     for batch in _batches(simple):
         agg = [pl.len().alias("_total")]
         for i, r in enumerate(batch):
-            state = _polars_expr(r, metrics[r["metric_id"]], decl, pl)
+            state = _polars_expr(
+                r, metrics[r["metric_id"]], decl, pl, float_fields
+            )
             for code, label in (
                 (1, "pass"),
                 (0, "fail"),
@@ -862,7 +1049,10 @@ def _polars_run(
             out[r["id"]] = (int(row["_total"]), _summary_counts(row, i))
     for p in [r for r in ready if r.cost == "shuffle"]:
         missing = pl.any_horizontal(
-            [_polars_missing(n, decl[n], pl) for n in p.fields]
+            [
+                _polars_missing(n, decl[n], pl, is_float=n in float_fields)
+                for n in p.fields
+            ]
         )
         first = (
             lf.select(pl.len().alias("n"), missing.sum().alias("missing"))
@@ -909,18 +1099,15 @@ def _spark_col(name: str, F: EngineModule) -> SparkColumn:
 
 
 def _spark_missing(
-    name: str, f: Mapping[str, Any], F: EngineModule
+    name: str, f: Mapping[str, Any], F: EngineModule, *, is_float: bool
 ) -> SparkColumn:
     x = _spark_col(name, F)
     p = f.get("missing_policy", {})
     checks = [x.isNull()]
-    if any(
-        t in str(f.get("physical_type", "")).lower()
-        for t in ("float", "double")
-    ):
+    if is_float and nan_is_missing(p):
         checks.append(F.isnan(x))
     if _logical_type(f["logical_type"]) == "string":
-        if p.get("empty_string"):
+        if empty_string_is_missing(p):
             checks.append(x == F.lit(""))
         if p.get("whitespace_only"):
             checks.append(F.trim(x) == F.lit(""))
@@ -938,13 +1125,30 @@ def _spark_expr(
     metric: Mapping[str, Any],
     fields: Mapping[str, Any],
     F: EngineModule,
+    float_fields: frozenset[str],
 ) -> SparkColumn:
     names = rule["target"]["fields"]
-    missing = _spark_missing(names[0], fields[names[0]], F)
+    missing = _spark_missing(
+        names[0], fields[names[0]], F, is_float=names[0] in float_fields
+    )
     for name in names[1:]:
-        missing = missing | _spark_missing(name, fields[name], F)
+        missing = missing | _spark_missing(
+            name, fields[name], F, is_float=name in float_fields
+        )
     evaluator = metric["evaluator"]
+    invalid: SparkColumn | None = None
+    for n in names:
+        if n in float_fields and infinities_are_invalid(
+            fields[n].get("missing_policy", {})
+        ):
+            column = _spark_col(n, F)
+            check = (column == F.lit(float("inf"))) | (
+                column == F.lit(float("-inf"))
+            )
+            invalid = check if invalid is None else (invalid | check)
     if evaluator == "builtin.presence":
+        if invalid is not None:
+            return F.when(missing | invalid, F.lit(0)).otherwise(F.lit(1))
         return F.when(missing, F.lit(0)).otherwise(F.lit(1))
     a = _spark_col(names[0], F)
     ex = rule["expectation"]
@@ -974,6 +1178,8 @@ def _spark_expr(
         ok = a.rlike("^(?:" + ex["pattern"] + ")$")
     else:
         raise ValueError("Unknown portable evaluator")
+    if invalid is not None:
+        ok = ok & ~invalid
     return (
         F.when(
             missing,
@@ -997,6 +1203,7 @@ def _spark_run(
         raise ValueError("Spark Connect and Streaming are not verified")
     decl = {f["name"]: f for f in asset["fields"]}
     actual = {x.name: x.dataType.simpleString() for x in source.schema.fields}
+    float_fields = frozenset(n for n, t in actual.items() if is_float_type(t))
     for r in ready:
         for name in r.fields:
             if name not in actual:
@@ -1010,7 +1217,9 @@ def _spark_run(
     for batch in _batches(simple):
         exprs = [F.count(F.lit(1)).alias("_total")]
         for i, r in enumerate(batch):
-            state = _spark_expr(r, metrics[r["metric_id"]], decl, F)
+            state = _spark_expr(
+                r, metrics[r["metric_id"]], decl, F, float_fields
+            )
             for code, label in (
                 (1, "pass"),
                 (0, "fail"),
@@ -1028,9 +1237,16 @@ def _spark_run(
         for i, r in enumerate(batch):
             out[r["id"]] = (int(row["_total"]), _summary_counts(row, i))
     for p in [r for r in ready if r.cost == "shuffle"]:
-        missing = _spark_missing(p.fields[0], decl[p.fields[0]], F)
-        for field in p.fields[1:]:
-            missing = missing | _spark_missing(field, decl[field], F)
+        missing = _spark_missing(
+            p.fields[0],
+            decl[p.fields[0]],
+            F,
+            is_float=p.fields[0] in float_fields,
+        )
+        for name in p.fields[1:]:
+            missing = missing | _spark_missing(
+                name, decl[name], F, is_float=name in float_fields
+            )
         first = source.agg(
             F.count(F.lit(1)).alias("n"),
             F.sum(F.when(missing, 1).otherwise(0)).alias("missing"),
@@ -1079,8 +1295,7 @@ def _csv_run(
     memory cap.
     """
     path = Path(source)
-    opener = gzip.open if str(path).lower().endswith(".gz") else open
-    delimiter = "\t" if ".tsv" in str(path).lower() else ","
+    options = CsvReadOptions.from_asset(asset, path=path)
     fields = {f["name"]: f for f in asset["fields"]}
     simple = [r for r in ready if r.cost == "aggregate"]
     key_rules = [r for r in ready if r.cost == "shuffle"]
@@ -1090,75 +1305,62 @@ def _csv_run(
     }
     key_counts: dict[str, dict[Any, int]] = {r.rule_id: {} for r in key_rules}
     n = 0
-    with opener(path, "rt", encoding="utf-8-sig", newline="") as handle:
-        reader = csv.DictReader(
-            handle, delimiter=delimiter, restkey="__qd_extra__"
-        )
-        if not reader.fieldnames or len(reader.fieldnames) != len(
-            set(reader.fieldnames)
-        ):
-            raise ValueError("Missing or duplicate CSV headers")
-        for r in ready:
-            if any(k not in reader.fieldnames for k in r.fields):
-                raise ValueError("Missing CSV field")
-        for row in reader:
-            if row.get("__qd_extra__") is not None:
-                raise ValueError("Ragged CSV is not silently accepted")
-            n += 1
-            for r in simple:
-                rule = rules[r.rule_id]
-                metric = metrics[r.metric_id]
-                misses = [_csv_missing(row[c], fields[c]) for c in r.fields]
-                if r.evaluator == "builtin.presence":
-                    state = 0 if any(misses) else 1
-                elif any(misses):
-                    state = _NULL_STATES[
-                        metric.get("null_policy", "indeterminate")
-                    ]
-                elif r.evaluator == "builtin.allowed_values":
-                    state = int(
-                        row[r.fields[0]] in rule["expectation"]["values"]
+    header = read_header(path, options)
+    for r in ready:
+        if any(k not in header for k in r.fields):
+            raise ValueError("Missing CSV field")
+    for row in iter_records(path, options):
+        n += 1
+        for r in simple:
+            rule = rules[r.rule_id]
+            metric = metrics[r.metric_id]
+            misses = [_csv_missing(row[c], fields[c]) for c in r.fields]
+            if r.evaluator == "builtin.presence":
+                state = 0 if any(misses) else 1
+            elif any(misses):
+                state = _NULL_STATES[
+                    metric.get("null_policy", "indeterminate")
+                ]
+            elif r.evaluator == "builtin.allowed_values":
+                state = int(row[r.fields[0]] in rule["expectation"]["values"])
+            elif r.evaluator == "builtin.regex_fullmatch":
+                state = int(
+                    re.fullmatch(
+                        rule["expectation"]["pattern"],
+                        row[r.fields[0]],
+                        flags=re.ASCII,
                     )
-                elif r.evaluator == "builtin.regex_fullmatch":
-                    state = int(
-                        re.fullmatch(
-                            rule["expectation"]["pattern"],
-                            row[r.fields[0]],
-                            flags=re.ASCII,
-                        )
-                        is not None
-                    )
-                else:
-                    raise ValueError("Unsupported CSV simple evaluator")
+                    is not None
+                )
+            else:
+                raise ValueError("Unsupported CSV simple evaluator")
+            buckets[r.rule_id][
+                {1: "passed", 0: "failed", -1: "unknown", -2: "excluded"}[
+                    state
+                ]
+            ] += 1
+        for r in key_rules:
+            vals = tuple(row[k] for k in r.fields)
+            if any(_csv_missing(row[k], fields[k]) for k in r.fields):
+                state = _NULL_STATES[
+                    metrics[r.metric_id].get("null_policy", "indeterminate")
+                ]
                 buckets[r.rule_id][
-                    {1: "passed", 0: "failed", -1: "unknown", -2: "excluded"}[
-                        state
-                    ]
+                    {
+                        1: "passed",
+                        0: "failed",
+                        -1: "unknown",
+                        -2: "excluded",
+                    }[state]
                 ] += 1
-            for r in key_rules:
-                vals = tuple(row[k] for k in r.fields)
-                if any(_csv_missing(row[k], fields[k]) for k in r.fields):
-                    state = _NULL_STATES[
-                        metrics[r.metric_id].get(
-                            "null_policy", "indeterminate"
-                        )
-                    ]
-                    buckets[r.rule_id][
-                        {
-                            1: "passed",
-                            0: "failed",
-                            -1: "unknown",
-                            -2: "excluded",
-                        }[state]
-                    ] += 1
-                else:
-                    tally = key_counts[r.rule_id]
-                    tally[vals] = tally.get(vals, 0) + 1
-                    if len(tally) > max_exact_keys:
-                        raise MemoryError(
-                            "Exact CSV uniqueness exceeds hard cap; switch to "
-                            "DuckDB"
-                        )
+            else:
+                tally = key_counts[r.rule_id]
+                tally[vals] = tally.get(vals, 0) + 1
+                if len(tally) > max_exact_keys:
+                    raise MemoryError(
+                        "Exact CSV uniqueness exceeds hard cap; switch to "
+                        "DuckDB"
+                    )
     for r in key_rules:
         dup = sum(c for c in key_counts[r.rule_id].values() if c > 1)
         buckets[r.rule_id]["failed"] += dup
@@ -1172,7 +1374,7 @@ def _csv_missing(x: str, field: Mapping[str, Any]) -> bool:
     if x is None:
         return True
     p = field.get("missing_policy", {})
-    if p.get("empty_string") and x == "":
+    if empty_string_is_missing(p) and x == "":
         return True
     if p.get("whitespace_only") and x.strip() == "":
         return True
@@ -1328,8 +1530,10 @@ def evaluate_optimized(
             raise AssertionError("Count invariant violated")
         eligible = passed + failed + unknown
         observed = passed + failed
-        low = passed / eligible if eligible else None
-        upper = (passed + unknown) / eligible if eligible else None
+        bounds = rate_bounds(
+            passed, failed, unknown, model=bound_model(p.evaluator)
+        )
+        low, upper = bounds.lower, bounds.upper
         outputs.append(
             OptimizedRuleResult(
                 p.rule_id,
@@ -1362,4 +1566,5 @@ def evaluate_optimized(
         datetime.now(timezone.utc).isoformat(),
         plan,
         tuple(outputs),
+        sources={aid: describe_source(src) for aid, src in data.items()},
     )

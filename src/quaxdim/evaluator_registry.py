@@ -11,6 +11,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
+from .bounds import BoundModel
+
 
 @dataclass(frozen=True)
 class Capability:
@@ -25,6 +27,9 @@ class Capability:
     evidence_required: bool = False
     temporal: bool = False
     scalar_only: bool = False
+    # How an unknown unit can change other units' outcomes; it decides the
+    # worst-case identification bound (see ``quaxdim.bounds``).
+    bound_model: BoundModel = BoundModel.ROW_LOCAL
 
 
 @dataclass(frozen=True)
@@ -83,6 +88,7 @@ REGISTRY: dict[str, EvaluatorSpec] = {
             ("uniqueness",),
             ("pandas", "spark"),
             scalar_only=True,
+            bound_model=BoundModel.PAIRWISE_COLLISION,
         ),
         _spec(
             "builtin.max_delay",
@@ -157,6 +163,18 @@ def capabilities() -> dict[str, Capability]:
 def supports_backend(name: str, backend: str) -> bool:
     """Return whether evaluator ``name`` is implemented on ``backend``."""
     return backend in REGISTRY[name].backends if name in REGISTRY else False
+
+
+def bound_model(name: str) -> BoundModel:
+    """Return the identification-bound model of a registered evaluator.
+
+    Raises:
+        KeyError: If ``name`` is not registered; an unknown evaluator has no
+            verified worst case, so callers must not guess one.
+    """
+    if name not in REGISTRY:
+        raise KeyError(f"Evaluator not registered: {name}")
+    return REGISTRY[name].capability.bound_model
 
 
 def list_evaluators() -> list[dict[str, object]]:

@@ -93,7 +93,9 @@ def test_from_v03_contract_4_checks_are_truly_executed():
     assert r["grain_unique"].status == "INDETERMINATE"
     assert r["grain_unique"].indeterminate_units == 1
     assert r["grain_unique"].measured_rate == 1
-    assert r["grain_unique"].lower_rate == pytest.approx(2 / 3)
+    # Uniqueness is not row-local: the unknown key may equal one of the two
+    # unique keys and turn both rows into failures (audit finding C1).
+    assert r["grain_unique"].lower_rate == pytest.approx(1 / 3)
     assert r["capture_within_7_days"].status == "PASS"
 
 

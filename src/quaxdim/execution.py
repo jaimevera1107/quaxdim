@@ -12,13 +12,15 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ._io import describe_source, write_text_atomic
 from ._lazy import LazyModule
+from ._version import __version__
 from .pandas_evaluators import EXTRA_PANDAS_EVALUATORS, evaluate_pandas_extra
 
 if TYPE_CHECKING:
@@ -35,6 +37,9 @@ from .applicability import (
     _datetime_series,
     _time_mask,
 )
+from .bounds import rate_bounds
+from .evaluator_registry import bound_model
+from .missingness import empty_string_is_missing
 
 
 class EvaluationError(ValueError):
@@ -93,6 +98,9 @@ class ContractExecutionReport:
     generated_at: str
     plan: EvaluationPlan
     results: tuple[ContractRuleResult, ...]
+    # Audit trail: which library produced the verdicts and on which inputs.
+    library_version: str = __version__
+    sources: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serialisable dictionary."""
@@ -100,6 +108,8 @@ class ContractExecutionReport:
             "contract_version": self.contract_version,
             "contract_sha256": self.contract_sha256,
             "generated_at": self.generated_at,
+            "library_version": self.library_version,
+            "sources": {k: dict(v) for k, v in self.sources.items()},
             "all_passed": self.passed,
             "plan": self.plan.to_dict(),
             "results": [r.to_dict() for r in self.results],
@@ -115,7 +125,7 @@ class ContractExecutionReport:
             self.to_dict(), indent=2, ensure_ascii=False, allow_nan=False
         )
         if path is not None:
-            Path(path).write_text(data + "\n", encoding="utf-8")
+            write_text_atomic(path, data + "\n")
         return data
 
     def to_frame(self) -> pd.DataFrame:
@@ -172,9 +182,15 @@ def _is_missing(
         # Treat intrinsic null as unknown/missing for conservative quality
         # checks.
         missing = series.isna().to_numpy(dtype=bool, copy=True)
-    if policy.get("empty_string") or policy.get("whitespace_only"):
+    # The empty-string default only applies to text columns: a numeric
+    # column cannot hold "" and must not be stringified to look for it.
+    textual = pd.api.types.is_object_dtype(
+        series.dtype
+    ) or pd.api.types.is_string_dtype(series.dtype)
+    empty_is_missing = textual and empty_string_is_missing(policy)
+    if empty_is_missing or policy.get("whitespace_only"):
         s = series.astype("string")
-        if policy.get("empty_string"):
+        if empty_is_missing:
             missing |= s.eq("").fillna(False).to_numpy(dtype=bool)
         if policy.get("whitespace_only"):
             missing |= s.str.strip().eq("").fillna(False).to_numpy(dtype=bool)
@@ -522,6 +538,7 @@ class ContractExecutor:
             datetime.now(timezone.utc).isoformat(),
             actual_plan,
             tuple(results[rid] for rid in rules),
+            sources={aid: describe_source(src) for aid, src in data.items()},
         )
 
     @staticmethod
@@ -871,8 +888,14 @@ class ContractExecutor:
         if not eligible:
             status = "NO_ELIGIBLE_DATA"
         else:
-            lower = passed / eligible
-            upper = (passed + unknown_in_scope) / eligible
+            identified = rate_bounds(
+                passed,
+                failed,
+                unknown_in_scope,
+                model=bound_model(evaluator),
+            )
+            lower, upper = identified.lower, identified.upper
+            assert lower is not None and upper is not None
             status = _failure_status(lower, upper, threshold)
         failed_rows = np.flatnonzero(
             (array == 0).any(axis=1) if array.ndim == 2 else (array == 0)

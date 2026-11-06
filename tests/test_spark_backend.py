@@ -96,7 +96,9 @@ def test_native_spark_four_metrics(spark):
     assert rows["OCU_ID_2025_catalog"].status == "PASS"
     assert rows["grain_unique"].status == "INDETERMINATE"
     assert rows["grain_unique"].indeterminate_units == 1
-    assert rows["grain_unique"].lower_rate == pytest.approx(2 / 3)
+    # Uniqueness is not row-local: the unknown key may equal one of the two
+    # unique keys and turn both rows into failures (audit finding C1).
+    assert rows["grain_unique"].lower_rate == pytest.approx(1 / 3)
     assert rows["capture_within_7_days"].status == "PASS"
     assert rows["capture_within_7_days"].total_rows == 3
 

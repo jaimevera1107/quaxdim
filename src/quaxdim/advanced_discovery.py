@@ -13,6 +13,7 @@ from __future__ import annotations
 import csv
 import gzip
 import json
+import math
 import random
 import re
 from collections.abc import Iterable, Mapping, Sequence
@@ -22,29 +23,31 @@ from itertools import combinations
 from pathlib import Path
 from typing import Any
 
+from ._io import write_text_atomic
 from ._types import SparkFrame
+from .csv_dialect import (
+    CsvReadOptions,
+    duckdb_csv_relation,
+    field_size_limit,
+    is_csv_path,
+    read_header,
+)
 from .evaluator_registry import REGISTRY
+from .heuristics import (
+    HeuristicThresholds,
+    dependency_evidence,
+    good_turing_unseen_mass,
+    has_role,
+    hll_suggests_unique,
+    min_detectable_duplicate_share,
+    rule_of_three_upper,
+    semantic_roles,
+    start_end_pairs,
+)
+from .missingness import NEVER_NULL_SENTINEL
 
-_RE_ID = re.compile(
-    r"(^id$|(^|[_\s-])(id|uuid|guid|code|codigo|cod|sku|postal)([_\s-]|$)|_id$)",
-    re.I,
-)
-_RE_COUNT = re.compile(
-    r"(count|cantidad|qty|vacantes|inscritos|colocaciones|poblacion|population|total|conteo)",
-    re.I,
-)
-_RE_TIME = re.compile(
-    r"(fecha|date|time|timestamp|created|updated|periodo|period|year|año|quarter|trimestre)",
-    re.I,
-)
-_RE_BEGIN = re.compile(r"(inicio|start|begin|desde|created)", re.I)
-_RE_END = re.compile(r"(fin|end|finish|hasta|updated)", re.I)
-_RE_LOCATION = re.compile(
-    r"(municipio|departamento|country|city|region|location|dpt|mpo)", re.I
-)
-_RE_CATEGORY = re.compile(
-    r"(estado|status|tipo|type|clase|category|genero|gender|sexo)", re.I
-)
+# Semantic roles and start/end vocabularies live in ``heuristics`` and are
+# matched on name tokens, not substrings (audit finding A3).
 _RE_CODE = re.compile(r"^[0-9]+$")
 _RE_ISO = re.compile(r"^\d{4}-\d{2}-\d{2}(?:[ T].*)?$")
 _RE_AMBIGUOUS = re.compile(r"^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$")
@@ -62,6 +65,9 @@ _SENTINELS = frozenset(
         "?",
     }
 )
+# Output cap for cross-asset name hints (a volume limit, not a decision
+# threshold): beyond it, hints stop being reviewable.
+_MAX_RELATIONSHIP_HINTS = 12
 _ID_VALID = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]*$")
 
 
@@ -83,6 +89,11 @@ class DiscoveryBudget:
     seed: int = 42
     allow_sample_values: bool = (
         False  # local analysis; never in default report
+    )
+    # Every threshold that decides whether a hypothesis is proposed; shared
+    # with the pandas advisor so both propose the same things.
+    thresholds: HeuristicThresholds = field(
+        default_factory=HeuristicThresholds
     )
 
     def __post_init__(self) -> None:
@@ -256,7 +267,7 @@ class AdvancedDiscoveryReport:
             default=str,
         )
         if path is not None:
-            Path(path).write_text(doc + "\n", encoding="utf-8")
+            write_text_atomic(path, doc + "\n")
         return doc
 
     def capability_coverage(self) -> dict[str, Any]:
@@ -411,23 +422,7 @@ def _advice(
 
 
 def _roles(name: str, logical: str) -> list[str]:
-    roles = []
-    if _RE_ID.search(name):
-        roles.append("identifier")
-    if _RE_TIME.search(name):
-        roles.append("temporal")
-    if _RE_LOCATION.search(name):
-        roles.append("geographical")
-    if _RE_COUNT.search(name):
-        roles.append("count")
-    if _RE_CATEGORY.search(name):
-        roles.append("category")
-    if (
-        logical in ("date", "datetime", "timestamp")
-        and "temporal" not in roles
-    ):
-        roles.append("temporal")
-    return roles or ["unknown"]
+    return semantic_roles(name, logical)
 
 
 def _logical_from_native(type_name: str) -> str:
@@ -500,6 +495,7 @@ def _read_csv_stream(
     *,
     delimiter: str = ",",
     encoding: str = "utf-8-sig",
+    quote_char: str = '"',
 ) -> dict[str, Any]:
     """A single sequential pass, O(columns + sample_rows*columns + bounded
     sketches).
@@ -513,7 +509,10 @@ def _read_csv_stream(
         handle_context = path.open("r", encoding=encoding, newline="")
     with handle_context as handle:
         reader = csv.DictReader(
-            handle, delimiter=delimiter, restkey="__qd_extra_fields__"
+            handle,
+            delimiter=delimiter,
+            quotechar=quote_char,
+            restkey="__qd_extra_fields__",
         )
         fields = list(reader.fieldnames or [])
         if (
@@ -532,7 +531,7 @@ def _read_csv_stream(
             {
                 f: ApproxCardinality(b.hll_precision)
                 for f in selected
-                if _RE_ID.search(f)
+                if has_role(f, "identifier")
             }
             if b.mode != "schema"
             else {}
@@ -543,7 +542,7 @@ def _read_csv_stream(
         num_missing = {f: 0 for f in selected}
         num_blank = {f: 0 for f in selected}
         num_sentinel = {f: 0 for f in selected}
-        code_digits = {f: 0 for f in selected if _RE_ID.search(f)}
+        code_digits = {f: 0 for f in selected if has_role(f, "identifier")}
         code_min: dict[str, int | None] = {f: None for f in code_digits}
         code_max: dict[str, int | None] = {f: None for f in code_digits}
         malformed = 0
@@ -667,7 +666,11 @@ def _lit_sql(value: Any) -> str:
 
 
 def _duckdb_source(
-    path: Path, b: DiscoveryBudget, *, connection: Any = None
+    path: Path,
+    b: DiscoveryBudget,
+    *,
+    connection: Any = None,
+    csv_options: CsvReadOptions | None = None,
 ) -> dict[str, Any]:
     try:
         import duckdb
@@ -677,28 +680,37 @@ def _duckdb_source(
         ) from exc
     conn = connection or duckdb.connect()
     try:
-        return _duckdb_source_with_connection(conn, path, b)
+        return _duckdb_source_with_connection(
+            conn, path, b, csv_options=csv_options
+        )
     finally:
         if connection is None:
             conn.close()
 
 
 def _duckdb_source_with_connection(
-    conn: Any, path: Path, b: DiscoveryBudget
+    conn: Any,
+    path: Path,
+    b: DiscoveryBudget,
+    *,
+    csv_options: CsvReadOptions | None = None,
 ) -> dict[str, Any]:
     suffix = path.suffix.lower()
     if suffix not in {".csv", ".parquet"}:
         raise ValueError("DuckDB file discovery supports .csv and .parquet")
     # Literal escaping prevents path-to-SQL injection, and only trusted table
-    # functions run.
-    rel = (
-        f"read_parquet({_lit_sql(str(path))})"
-        if suffix == ".parquet"
-        else (
-            f"read_csv({_lit_sql(str(path))}, "
-            "all_varchar=true, sample_size=20480)"
+    # functions run. CSV files are read with the same strict, declared
+    # dialect as evaluation; DuckDB's sniffer is never used.
+    if suffix == ".parquet":
+        rel = f"read_parquet({_lit_sql(str(path))})"
+    else:
+        options = csv_options or CsvReadOptions.from_mapping({}, path=path)
+        rel = duckdb_csv_relation(
+            path,
+            options,
+            read_header(path, options),
+            null_sentinel=NEVER_NULL_SENTINEL,
         )
-    )
     descriptor = conn.execute("DESCRIBE SELECT * FROM " + rel).fetchall()
     cols = [
         _init_profile(
@@ -849,12 +861,14 @@ def _polars_source(source: Any, b: DiscoveryBudget) -> dict[str, Any]:
                         .alias(f"_dq_maxlen_{i}"),
                     ]
                 )
+    # ``engine="streaming"`` replaced ``streaming=True`` during Polars 1.x;
+    # the legacy keyword was removed in Polars 2.
+    selection: Any = lf.select(exprs)
     try:
-        result = (
-            lf.select(exprs).collect(engine="streaming").row(0, named=True)
-        )
+        frame = selection.collect(engine="streaming")
     except TypeError:
-        result = lf.select(exprs).collect(streaming=True).row(0, named=True)
+        frame = selection.collect(streaming=True)
+    result = frame.row(0, named=True)
     for i, c in enumerate(selected):
         c["nulls"] = int(result[f"_dq_null_{i}"] or 0)
         c["observations_profiled"] = int(result["_dq_rows"])
@@ -979,6 +993,7 @@ def _single_asset_advice(
     aid: str, asset: Mapping[str, Any], b: DiscoveryBudget
 ) -> list[Advice]:
     recs = []
+    t = b.thresholds
     cols = asset["columns"]
     sample = asset.get("sample", [])
     rows = asset["rows"]
@@ -996,7 +1011,7 @@ def _single_asset_advice(
         recs.append(
             _advice(
                 "rule",
-                f"Revisar obligatoriedad de {name}",
+                f"Review whether {name} is required",
                 aid,
                 [name],
                 dimension="completeness",
@@ -1006,11 +1021,11 @@ def _single_asset_advice(
                 priority="high" if "identifier" in roles else "medium",
                 cost="aggregate",
                 rationale=(
-                    "La completitud es medible; la obligatoriedad se decide "
-                    "por el uso."
+                    "Completeness is measurable; whether the field is "
+                    "required depends on its use."
                 ),
                 evidence=ev,
-                prerequisites=("Confirmar obligatoriedad de la variable",),
+                prerequisites=("Confirm that the field is required",),
             )
         )
         if not counted:
@@ -1023,7 +1038,7 @@ def _single_asset_advice(
                         [name],
                         priority="low",
                         cost="aggregate",
-                        rationale="Fuera del presupuesto de columnas.",
+                        rationale="Outside the column budget.",
                     )
                 )
         if "count" in roles:
@@ -1031,7 +1046,7 @@ def _single_asset_advice(
                 recs.append(
                     _advice(
                         "rule",
-                        f"Confirmar no negatividad de {name}",
+                        f"Confirm that {name} is non-negative",
                         aid,
                         [name],
                         dimension="validity",
@@ -1041,13 +1056,13 @@ def _single_asset_advice(
                         priority="high",
                         cost="aggregate",
                         rationale=(
-                            "Nombre y tipo sugieren conteo; los ajustes "
-                            "pueden ser negativos."
+                            "Name and type suggest a count; adjustments "
+                            "may be negative."
                         ),
                         evidence={"physical_type": meta["physical_type"]},
                         caveats=(
-                            "No aplicar a saldos, diferencias o ajustes "
-                            "firmados.",
+                            "Do not apply to balances, differences or signed "
+                            "adjustments.",
                         ),
                     )
                 )
@@ -1055,18 +1070,18 @@ def _single_asset_advice(
                 recs.append(
                     _advice(
                         "semantic",
-                        f"Declarar tipo numérico para {name}",
+                        f"Declare a numeric type for {name}",
                         aid,
                         [name],
                         priority="high",
                         cost="aggregate",
                         rationale=(
-                            "Parece conteo, pero el tipo es lexical o "
-                            "desconocido."
+                            "Looks like a count, but the type is lexical or "
+                            "unknown."
                         ),
                         prerequisites=(
-                            "Definir conversión, locale, nulos y vigencia "
-                            "temporal",
+                            "Define conversion, locale, nulls and validity "
+                            "period",
                         ),
                     )
                 )
@@ -1077,7 +1092,7 @@ def _single_asset_advice(
             recs.append(
                 _advice(
                     "semantic",
-                    f"Confirmar interpretación temporal de {name}",
+                    f"Confirm the temporal interpretation of {name}",
                     aid,
                     [name],
                     priority="medium",
@@ -1088,11 +1103,9 @@ def _single_asset_advice(
                         "iso_lexical_matches": iso,
                         "ambiguous_date_patterns": ambiguous,
                     },
-                    prerequisites=(
-                        "Declarar formato, zona horaria y calendario",
-                    ),
+                    prerequisites=("Declare format, time zone and calendar",),
                     caveats=(
-                        "No interpretar fechas ambiguas automáticamente.",
+                        "Do not interpret ambiguous dates automatically.",
                     ),
                 )
             )
@@ -1109,37 +1122,40 @@ def _single_asset_advice(
                 recs.append(
                     _advice(
                         "missing_policy",
-                        f"Revisar marcadores de ausencia en {name}",
+                        f"Review missing-value markers in {name}",
                         aid,
                         [name],
                         expectation={"tokens": sentinels},
                         priority="medium",
                         cost="schema",
                         rationale=(
-                            "La muestra contiene posibles marcadores de "
-                            "ausencia."
+                            "The sample contains possible missing-value "
+                            "markers."
                         ),
                         evidence={
                             "observed_token_types": len(sentinels),
                             "sample_rows": len(vals),
                         },
-                        caveats=("Algunos tokens tienen significado válido.",),
+                        caveats=("Some tokens have a valid meaning.",),
                     )
                 )
             if "identifier" in roles and logical == "string":
                 strict = [
                     v for v in vals if v.strip().upper() not in _SENTINELS
                 ]
-                if len(strict) >= 3 and all(
+                if len(strict) >= t.min_pattern_sample and all(
                     _RE_CODE.fullmatch(v) for v in strict
                 ):
                     lens = {len(v) for v in strict}
-                    if len(lens) == 1 and 0 < next(iter(lens)) <= 40:
+                    if (
+                        len(lens) == 1
+                        and 0 < next(iter(lens)) <= t.max_code_width
+                    ):
                         w = next(iter(lens))
                         recs.append(
                             _advice(
                                 "rule",
-                                f"Confirmar anchura de código {name}",
+                                f"Confirm the code width of {name}",
                                 aid,
                                 [name],
                                 dimension="validity",
@@ -1152,29 +1168,34 @@ def _single_asset_advice(
                                 priority="medium",
                                 cost="aggregate",
                                 rationale=(
-                                    "Patrón uniforme observado en muestra "
-                                    "acotada."
+                                    "Uniform pattern observed in a bounded "
+                                    "sample."
                                 ),
                                 evidence={
                                     "sample_non_missing": len(strict),
                                     "width": w,
+                                    # ~95% upper bound on the share of
+                                    # other widths in the population.
+                                    "other_width_share_upper_95": (
+                                        rule_of_three_upper(len(strict))
+                                    ),
                                 },
                                 caveats=(
-                                    "Códigos históricos pueden variar de "
-                                    "longitud.",
+                                    "Historical codes may vary in length.",
                                 ),
                             )
                         )
-            if "category" in roles and len(vals) >= 12:
+            if "category" in roles and len(vals) >= t.min_category_sample:
                 unique = set(vals)
+                unseen = good_turing_unseen_mass(vals)
                 if (
                     1 < len(unique) <= b.max_domain_values
-                    and len(unique) / len(vals) <= 0.35
+                    and len(unique) / len(vals) <= t.max_category_unique_share
                 ):
                     recs.append(
                         _advice(
                             "rule",
-                            f"Revisar dominio candidato de {name}",
+                            f"Review the candidate domain of {name}",
                             aid,
                             [name],
                             dimension="validity",
@@ -1187,15 +1208,19 @@ def _single_asset_advice(
                             priority="medium",
                             cost="external",
                             rationale=(
-                                "Dominio deducido de muestra; no demuestra "
-                                "mundo cerrado."
+                                "Domain inferred from a sample; it does not "
+                                "prove a closed world."
                             ),
                             evidence={
                                 "distinct_in_sample": len(unique),
                                 "sample_rows": len(vals),
+                                # Good-Turing estimate of the population
+                                # share in categories not seen here.
+                                "unseen_category_share": unseen,
                             },
                             prerequisites=(
-                                "Verificar catálogo oficial y su vigencia",
+                                "Verify the official catalogue and its "
+                                "validity period",
                             ),
                         )
                     )
@@ -1214,12 +1239,12 @@ def _single_asset_advice(
                 and digits == nonempty
                 and lo == hi
                 and lo is not None
-                and 0 < lo <= 40
+                and 0 < lo <= t.max_code_width
             ):
                 recs.append(
                     _advice(
                         "rule",
-                        f"Confirmar anchura de código {name}",
+                        f"Confirm the code width of {name}",
                         aid,
                         [name],
                         dimension="validity",
@@ -1232,8 +1257,8 @@ def _single_asset_advice(
                         priority="medium",
                         cost="aggregate",
                         rationale=(
-                            "Todos los valores no vacíos tienen el mismo "
-                            "ancho y solo dígitos."
+                            "Every non-empty value has the same width and "
+                            "only digits."
                         ),
                         evidence={
                             "scope": "full_aggregate",
@@ -1242,30 +1267,33 @@ def _single_asset_advice(
                             "width": lo,
                         },
                         caveats=(
-                            "Un patrón observado no es un estándar "
-                            "obligatorio; validar cambios históricos.",
+                            "An observed pattern is not a mandatory standard; "
+                            "validate historical changes.",
                         ),
                     )
                 )
         if "identifier" in roles:
             exact = asset.get("exact_key_uniqueness", {}).get(name)
+            # Distinct counts and sketches exclude blanks, so the
+            # denominator must too (audit finding A1); otherwise 5 blanks
+            # hide a 1000-value unique key.
             observed_non_null = (
                 None
                 if rows is None or meta["nulls"] is None
-                else rows - meta["nulls"]
+                else rows - meta["nulls"] - (meta.get("blanks") or 0)
             )
             if (
                 exact
                 and exact["exact_distinct"] is not None
                 and observed_non_null is not None
-                and observed_non_null >= 3
+                and observed_non_null >= t.min_exact_key_non_null
             ):
                 is_unique = exact["exact_distinct"] == observed_non_null
                 if is_unique:
                     recs.append(
                         _advice(
                             "rule",
-                            f"Confirmar clave candidata {name}",
+                            f"Confirm candidate key {name}",
                             aid,
                             [name],
                             dimension="uniqueness",
@@ -1278,8 +1306,8 @@ def _single_asset_advice(
                             priority="high",
                             cost="exact_scan",
                             rationale=(
-                                "Sin duplicación entre presentes en escaneo "
-                                "limitado exacto."
+                                "No duplication among present values in a "
+                                "bounded exact scan."
                             ),
                             evidence={
                                 "exact_non_null_distinct": exact[
@@ -1289,22 +1317,30 @@ def _single_asset_advice(
                                 "exact": True,
                             },
                             caveats=(
-                                "No equivale a una obligación de unicidad por "
-                                "diseño.",
+                                "Not equivalent to a uniqueness obligation by "
+                                "design.",
                             ),
                         )
                     )
             elif (
                 meta["approx_distinct"] is not None
                 and observed_non_null
-                and observed_non_null >= 20
+                and observed_non_null >= t.min_hll_non_null
             ):
                 ratio = meta["approx_distinct"] / observed_non_null
-                if 0.94 <= ratio <= 1.06:
+                rse = meta.get("approx_distinct_relative_error") or (
+                    1.04 / math.sqrt(1 << b.hll_precision)
+                )
+                if hll_suggests_unique(
+                    meta["approx_distinct"],
+                    observed_non_null,
+                    rse,
+                    z=t.hll_z,
+                ):
                     recs.append(
                         _advice(
                             "hypothesis",
-                            f"Investigar posible unicidad de {name}",
+                            f"Investigate possible uniqueness of {name}",
                             aid,
                             [name],
                             dimension="uniqueness",
@@ -1318,9 +1354,10 @@ def _single_asset_advice(
                                 "approx_distinct": meta["approx_distinct"],
                                 "non_null": observed_non_null,
                                 "approx_ratio": round(ratio, 3),
+                                "approx_relative_error": rse,
                             },
                             prerequisites=(
-                                "Validación exacta sobre la clave propuesta",
+                                "Exact validation of the proposed key",
                             ),
                         )
                     )
@@ -1341,7 +1378,10 @@ def _single_asset_advice(
             examined += 1
             tuples = [(r.get(pair[0]), r.get(pair[1])) for r in sample]
             valid = [x for x in tuples if all(v not in (None, "") for v in x)]
-            if len(valid) < 4 or len(valid) / len(tuples) < 0.9:
+            if (
+                len(valid) < t.min_pair_sample
+                or len(valid) / len(tuples) < t.min_pair_coverage
+            ):
                 continue
             if len(set(valid)) == len(valid) and all(
                 len({x[i] for x in valid}) < len(valid) for i in (0, 1)
@@ -1349,63 +1389,64 @@ def _single_asset_advice(
                 recs.append(
                     _advice(
                         "hypothesis",
-                        f"Investigar clave compuesta {pair[0]} + {pair[1]}",
+                        f"Investigate composite key {pair[0]} + {pair[1]}",
                         aid,
                         list(pair),
                         dimension="uniqueness",
                         cost="exact_scan",
                         priority="high",
                         rationale=(
-                            "Candidata no duplicada en reservorio; sin prueba "
-                            "global."
+                            "Candidate not duplicated in the reservoir; no "
+                            "global proof."
                         ),
                         evidence={
                             "sample_pairs": len(valid),
                             "sample_unique": len(set(valid)),
                             "sample_based": True,
+                            # Duplicate share the reservoir would reveal
+                            # with ~95% probability; near 1.0 means the
+                            # sample is almost no evidence (audit M1).
+                            "min_detectable_duplicate_share": (
+                                min_detectable_duplicate_share(
+                                    rows, len(sample)
+                                )
+                            ),
                         },
                         prerequisites=(
-                            "Validación distribuida exacta de la clave",
+                            "Exact distributed validation of the key",
                         ),
                     )
                 )
-    temporal = [c for c in cols if "temporal" in c["semantic_roles"]]
-    for a in temporal:
-        for z in temporal:
-            if a is z:
-                continue
-            n1 = a["name"]
-            n2 = z["name"]
-            if (
-                _RE_BEGIN.search(n1)
-                and _RE_END.search(n2)
-                and a["logical_type"] in {"date", "datetime"}
-                and z["logical_type"] in {"date", "datetime"}
-            ):
-                recs.append(
-                    _advice(
-                        "rule",
-                        f"Revisar orden temporal {n1} <= {n2}",
-                        aid,
-                        [n1, n2],
-                        dimension="consistency",
-                        evaluator="builtin.column_compare",
-                        expectation={
-                            "operator": "expression",
-                            "extensions": {"comparison": "lte"},
-                        },
-                        confidence="low",
-                        priority="high",
-                        cost="aggregate",
-                        rationale=(
-                            "Dos campos temporalmente tipados con nombres de "
-                            "inicio y fin."
-                        ),
-                        prerequisites=(
-                            "Confirmar que pertenecen al mismo evento",
-                        ),
-                    )
-                )
+    # Start/end pairs must share the event root (audit finding A3); the
+    # previous loop paired every start field with every end field.
+    temporal_typed = {
+        c["name"]
+        for c in cols
+        if "temporal" in c["semantic_roles"]
+        and c["logical_type"] in {"date", "datetime"}
+    }
+    for n1, n2 in start_end_pairs(sorted(temporal_typed)):
+        recs.append(
+            _advice(
+                "rule",
+                f"Review temporal order {n1} <= {n2}",
+                aid,
+                [n1, n2],
+                dimension="consistency",
+                evaluator="builtin.column_compare",
+                expectation={
+                    "operator": "expression",
+                    "extensions": {"comparison": "lte"},
+                },
+                confidence="low",
+                priority="high",
+                cost="aggregate",
+                rationale=(
+                    "Two temporally typed fields with start and end names."
+                ),
+                prerequisites=("Confirm that they belong to the same event",),
+            )
+        )
     # Candidate functional dependencies are useful only with repeated
     # determinant values.
     # A unique identifier mapping to arbitrary attributes is trivial and not
@@ -1435,37 +1476,40 @@ def _single_asset_advice(
                     for x, y in pairs
                     if x not in (None, "") and y not in (None, "")
                 ]
-                if len(valid) < 8:
+                if len(valid) < t.min_fd_sample_pairs:
                     continue
-                deps: dict[str, Any] = {}
-                inconsistent = False
-                for x, y in valid:
-                    if x in deps and deps[x] != y:
-                        inconsistent = True
-                        break
-                    deps[x] = y
-                if not inconsistent and len(deps) < len(valid):
+                support = dependency_evidence(valid)
+                # One repeated determinant is not evidence (audit M2).
+                if (
+                    support.consistent
+                    and support.repeated_determinants
+                    >= t.min_fd_repeated_determinants
+                ):
                     recs.append(
                         _advice(
                             "hypothesis",
-                            f"Investigar dependencia {key} → {target}",
+                            f"Investigate dependency {key} → {target}",
                             aid,
                             [key, target],
                             dimension="consistency",
                             cost="exact_scan",
                             priority="medium",
                             rationale=(
-                                "Un código repetido conserva el mismo nombre "
-                                "en el reservorio."
+                                "A repeated code keeps the same name in the "
+                                "reservoir."
                             ),
                             evidence={
-                                "sample_pairs": len(valid),
-                                "distinct_determinants": len(deps),
+                                "sample_pairs": support.pairs,
+                                "distinct_determinants": support.determinants,
+                                "repeated_determinants": (
+                                    support.repeated_determinants
+                                ),
+                                "g3": support.g3,
                                 "sample_based": True,
                             },
                             prerequisites=(
-                                "Verificar versión de catálogo y la "
-                                "dependencia a escala completa",
+                                "Verify the catalogue version and the "
+                                "dependency at full scale",
                             ),
                         )
                     )
@@ -1506,7 +1550,7 @@ def _relationship_advice(
                         out.append(
                             _advice(
                                 "relationship",
-                                f"Investigar referencia {aid}.{col['name']} ↔ "
+                                f"Investigate reference {aid}.{col['name']} ↔ "
                                 f"{bid}.{other['name']}",
                                 aid,
                                 [col["name"], other["name"]],
@@ -1515,8 +1559,8 @@ def _relationship_advice(
                                 confidence="low",
                                 priority="high",
                                 rationale=(
-                                    "Compatibilidad de nombres; no se "
-                                    "verificó integridad referencial."
+                                    "Name compatibility; referential "
+                                    "integrity was not verified."
                                 ),
                                 evidence={
                                     "other_asset": bid,
@@ -1524,17 +1568,17 @@ def _relationship_advice(
                                     "schema_only": True,
                                 },
                                 prerequisites=(
-                                    "Definir dirección padre/hijo, claves, "
-                                    "nulos y vigencia",
-                                    "Unir fuentes con el motor "
-                                    "correspondiente",
+                                    "Define parent/child direction, keys, "
+                                    "nulls and validity period",
+                                    "Join the sources with the corresponding "
+                                    "engine",
                                 ),
                             )
                         )
                         matches += 1
-                        if matches >= 12:
+                        if matches >= _MAX_RELATIONSHIP_HINTS:
                             break
-                if matches >= 12:
+                if matches >= _MAX_RELATIONSHIP_HINTS:
                     break
     return out
 
@@ -1565,6 +1609,10 @@ def discover_advanced(
     b = budget or DiscoveryBudget()
     if len(csv_delimiter) != 1:
         raise ValueError("CSV delimiter must be a single character")
+    # An explicit delimiter wins; otherwise .tsv files default to tab.
+    declared_csv: dict[str, Any] = {"encoding": csv_encoding}
+    if csv_delimiter != ",":
+        declared_csv["delimiter"] = csv_delimiter
     sources_map = (
         dict(sources) if isinstance(sources, Mapping) else {asset_id: sources}
     )
@@ -1600,20 +1648,29 @@ def discover_advanced(
                 Path(source)
             ):
                 raise ValueError("csv_stream requires a CSV path")
-            suffix = str(source).lower()
-            delim = (
-                "\t"
-                if (suffix.endswith(".tsv") or suffix.endswith(".tsv.gz"))
-                and csv_delimiter == ","
-                else csv_delimiter
+            csv_options = CsvReadOptions.from_mapping(
+                declared_csv, path=source
             )
-            raw = _read_csv_stream(
-                Path(source), b, delimiter=delim, encoding=csv_encoding
-            )
+            with field_size_limit(csv_options.max_field_chars):
+                raw = _read_csv_stream(
+                    Path(source),
+                    b,
+                    delimiter=csv_options.delimiter,
+                    encoding=csv_options.encoding,
+                    quote_char=csv_options.quote_char,
+                )
+            raw["read_options"] = csv_options.to_contract()
         elif selected_engine == "duckdb":
             if not isinstance(source, (str, Path)):
                 raise TypeError("DuckDB adapter requires a file path")
-            raw = _duckdb_source(Path(source), b)
+            duck_options = (
+                CsvReadOptions.from_mapping(declared_csv, path=source)
+                if is_csv_path(source)
+                else None
+            )
+            raw = _duckdb_source(Path(source), b, csv_options=duck_options)
+            if duck_options is not None:
+                raw["read_options"] = duck_options.to_contract()
         elif selected_engine == "polars":
             raw = _polars_source(source, b)
         elif selected_engine == "spark":
@@ -1651,7 +1708,7 @@ def discover_advanced(
         recommendations.append(
             _advice(
                 "reference",
-                f"Confirmar correspondencia {signature} en {ref_id}",
+                f"Confirm the mapping of {signature} in {ref_id}",
                 a,
                 [column],
                 dimension="validity",
@@ -1660,8 +1717,8 @@ def discover_advanced(
                 priority="high",
                 cost="external",
                 rationale=(
-                    "Existe un catálogo declarado por el usuario, aún no "
-                    "verificado."
+                    "A user-declared catalogue exists but has not been "
+                    "verified yet."
                 ),
                 evidence={
                     "reference_id": ref_id,
@@ -1671,8 +1728,7 @@ def discover_advanced(
                 },
                 prerequisites=(
                     "Vincular referencia verificada",
-                    "Definir dirección, período y política para códigos no "
-                    "encontrados",
+                    "Define direction, period and policy for codes not found",
                 ),
             )
         )
@@ -1700,7 +1756,7 @@ def discover_advanced(
                     recommendations.append(
                         _advice(
                             "hypothesis",
-                            f"Investigar cambio de ausencias en "
+                            f"Investigate change in missing values in "
                             f"{aid}.{c['name']}",
                             aid,
                             [c["name"]],
@@ -1708,8 +1764,8 @@ def discover_advanced(
                             priority="medium",
                             cost="aggregate",
                             rationale=(
-                                "Desviación absoluta de 10 puntos o más "
-                                "frente a línea base."
+                                "Absolute deviation of 10 points or more from "
+                                "the baseline."
                             ),
                             evidence={
                                 "null_rate_now": round(rate, 6),
@@ -1719,12 +1775,12 @@ def discover_advanced(
                                 ),
                             },
                             prerequisites=(
-                                "Confirmar equivalencia de poblaciones, "
-                                "período y política de nulos",
+                                "Confirm equivalence of populations, period "
+                                "and null policy",
                             ),
                             caveats=(
-                                "El cambio puede ser legítimo y no demuestra "
-                                "error.",
+                                "The change may be legitimate and does not "
+                                "prove an error.",
                             ),
                         )
                     )

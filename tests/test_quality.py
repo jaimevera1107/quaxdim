@@ -1,6 +1,12 @@
 import pandas as pd
 import pytest
+
 from quaxdim import Check, QualitySuite, list_dimensions, profile
+
+# These tests exercise the deprecated legacy API on purpose.
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:QualitySuite is deprecated:DeprecationWarning"
+)
 
 
 def outcome(frame, **kwargs):
@@ -247,3 +253,34 @@ def test_object_string_with_numeric_sentinels_not_confused_with_bool():
     assert (
         r.failed == 2
     )  # Numeric 0 and N/A, but False and string "0" are not nulls.
+
+
+def test_add_rejects_duplicate_without_mutating_the_suite():
+    first = Check(
+        id="c", dimension="completeness", rule="required", columns=("a",)
+    )
+    suite = QualitySuite([first])
+    with pytest.raises(ValueError, match="already exists"):
+        suite.add(
+            Check(
+                id="c",
+                dimension="completeness",
+                rule="required",
+                columns=("a",),
+            )
+        )
+    assert suite.checks == [first]  # audit finding H3
+
+
+def test_schema_columns_detects_duplicate_headers():
+    frame = pd.DataFrame([[1, 2]], columns=["a", "a"])
+    check = Check(
+        id="s",
+        dimension="accuracy",
+        rule="schema_columns",
+        columns=(),
+        params={"expected": ["a"]},
+    )
+    result = QualitySuite([check]).run(frame).results[0]
+    assert result.status == "ERROR"  # audit finding H4
+    assert "duplicate" in result.message

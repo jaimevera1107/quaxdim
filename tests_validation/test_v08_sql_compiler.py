@@ -54,7 +54,7 @@ def test_sql_aggregate_results_and_safe_literals():
             "expectation": {"operator": "regex", "pattern": "[0-9]{4}"},
         },
     ]
-    sql = _as_aggregate_sql(rules, metrics, asset)
+    sql = _as_aggregate_sql(rules, metrics, asset, frozenset())
     c = db.execute(f'SELECT {sql} FROM "q"')
     record = dict(zip([x[0] for x in c.description], c.fetchone()))
     assert record["_total"] == 4

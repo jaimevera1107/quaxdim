@@ -15,6 +15,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ._io import write_text_atomic
 from ._lazy import LazyModule
 
 if TYPE_CHECKING:
@@ -25,19 +26,17 @@ else:
     pd = LazyModule("pandas", extra="pandas")
 
 from .evaluator_registry import REGISTRY
+from .heuristics import (
+    HeuristicThresholds,
+    good_turing_unseen_mass,
+    has_role,
+    rule_of_three_upper,
+    start_end_pairs,
+)
+from .missingness import EMPTY_STRING_IS_MISSING_DEFAULT
 
-_IDENTIFIER = re.compile(
-    r"(^id$|(^|[_ -])(id|uuid|guid|code|codigo|cod|sku|zip|postal)"
-    r"([_ -]|$)|_id$)",
-    re.I,
-)
-_COUNT = re.compile(
-    r"(^|[_ -])(count|cantidad|total|numero|número|num|qty|quantity|"
-    r"vacantes|inscritos|colocaciones|poblacion|population)([_ -]|$)",
-    re.I,
-)
-_BEGIN = re.compile(r"(start|begin|inicio|desde)", re.I)
-_END = re.compile(r"(end|finish|fin|hasta)", re.I)
+# Name semantics and thresholds are shared with the native advisor through
+# ``heuristics`` (audit findings A3 and the 0.25/0.35, 30/40 divergence).
 _DATE_AMBIGUOUS = re.compile(r"^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$")
 _SENTINELS = frozenset(
     {
@@ -221,9 +220,7 @@ class DiscoveryReport:
             allow_nan=False,
         )
         if path is not None:
-            from pathlib import Path
-
-            Path(path).write_text(result + "\n", encoding="utf-8")
+            write_text_atomic(path, result + "\n")
         return result
 
     def to_frame(self) -> pd.DataFrame:
@@ -372,7 +369,9 @@ class DiscoveryReport:
                 definition["missing_policy"] = {
                     "tokens": policy.get("tokens", []),
                     "normalization": "trim_casefold",
-                    "empty_string": policy.get("empty_string", False),
+                    "empty_string": policy.get(
+                        "empty_string", EMPTY_STRING_IS_MISSING_DEFAULT
+                    ),
                     "whitespace_only": policy.get("whitespace_only", False),
                 }
             if (
@@ -424,6 +423,7 @@ def discover(
     seed: int = 42,
     max_categories: int = 12,
     spark_mode: str = "schema",
+    thresholds: HeuristicThresholds | None = None,
 ) -> DiscoveryReport:
     """Bounded evidence-based advisor. Never runs suggested rules or coerces
     data.
@@ -432,11 +432,16 @@ def discover(
     missing/keys.
     Classic Spark: schema-only metadata, no collect and no Spark action by
     default.
+
+    Args:
+        thresholds: Heuristic thresholds; defaults to the same values the
+            native advisor (:func:`discover_advanced`) uses.
     """
     if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]*", asset_id):
         raise ValueError("asset_id must match the contract ID convention")
     if sample_rows < 1 or max_categories < 2:
         raise ValueError("sample_rows>=1 and max_categories>=2 are required")
+    limits = thresholds or HeuristicThresholds()
     if spark_mode not in {"schema", "aggregate"}:
         raise ValueError("spark_mode must be schema or aggregate")
     if not isinstance(data, pd.DataFrame):
@@ -481,7 +486,7 @@ def discover(
             "sample_non_null": int(sample.notna().sum()),
         }
         rows.append(row)
-        id_like = bool(_IDENTIFIER.search(c))
+        id_like = has_role(c, "identifier")
         const = "sample_only" if len(sample) < n else "all_rows"
 
         def suggest(
@@ -521,37 +526,35 @@ def discover(
         # Presence is universally measurable, but never assumed mandatory.
         suggest(
             "rule",
-            "Comprobar completitud de " + c,
+            "Check completeness of " + c,
             "completeness",
             "builtin.presence",
             "value",
             {"operator": "not_null"},
             "medium" if id_like else "low",
-            "Ausencias físicas observadas; obligatoriedad no inferida.",
+            "Physical missing values observed; being required is not "
+            "inferred.",
             {"null_count": count_null, "rows": n},
-            (
-                "Aprobar únicamente si el campo es obligatorio para el uso "
-                "previsto.",
-            ),
+            ("Approve only if the field is required for the intended use.",),
         )
         if logical == "variant":
             suggest(
                 "context",
-                "Declarar variantes/tipos mixtos de " + c,
+                "Declare mixed variants/types of " + c,
                 rationale=(
-                    "Los tipos físicos heterogéneos pueden ser legítimos "
-                    "según período o fuente."
+                    "Heterogeneous physical types may be legitimate by period "
+                    "or source."
                 ),
                 ev={"sample_count": len(sample)},
-                caveats=("No convertir automáticamente.",),
+                caveats=("Do not convert automatically.",),
             )
         if logical == "unknown":
             suggest(
                 "context",
-                "Definir tipo lógico de " + c,
+                "Define the logical type of " + c,
                 rationale=(
-                    "La columna no aporta observaciones tipables o usa un "
-                    "tipo no reconocido."
+                    "The column has no typeable observations or uses an "
+                    "unrecognised type."
                 ),
                 ev={"rows": n},
             )
@@ -563,16 +566,16 @@ def discover(
                 if empty:
                     suggest(
                         "missing_policy",
-                        "Confirmar blancos/espacios como ausencia en " + c,
+                        "Confirm blanks/whitespace as missing in " + c,
                         expect={"empty_string": True, "whitespace_only": True},
                         rationale=(
-                            "Hay cadenas vacías o de espacios; pueden ser "
-                            "valores permitidos."
+                            "There are empty or whitespace strings; they may "
+                            "be allowed values."
                         ),
                         ev={"sample_blanks": empty, "sample_rows": len(strs)},
                         caveats=(
-                            "No marcar como ausentes sin conocer el contrato "
-                            "semántico.",
+                            "Do not mark as missing without knowing the "
+                            "semantic contract.",
                         ),
                     )
                 candidate_tokens = sorted(
@@ -585,19 +588,19 @@ def discover(
                 if candidate_tokens:
                     suggest(
                         "missing_policy",
-                        "Revisar marcadores de ausencia en " + c,
+                        "Review missing-value markers in " + c,
                         expect={"tokens": candidate_tokens},
                         rationale=(
-                            "Se observaron expresiones que podrían codificar "
-                            "ausencias."
+                            "Expressions that could encode missing values "
+                            "were observed."
                         ),
                         ev={
                             "candidate_token_count": len(candidate_tokens),
                             "sample_rows": len(strs),
                         },
                         caveats=(
-                            "NA y otros códigos pueden tener significado "
-                            "válido; confirmar primero.",
+                            "NA and other codes may have a valid meaning; "
+                            "confirm first.",
                         ),
                     )
                 iso_count = int(
@@ -611,33 +614,44 @@ def discover(
                 if ambiguous_count:
                     suggest(
                         "semantic",
-                        "Confirmar formato regional de fechas en " + c,
+                        "Confirm the regional date format in " + c,
                         rationale=(
                             "Formato DD/MM o MM/DD potencialmente ambiguo; no "
                             "se ha interpretado."
                         ),
                         ev={"ambiguous_lexical_dates": ambiguous_count},
                         caveats=(
-                            "Requiere patrón, calendario y zona horaria "
-                            "explícitos.",
+                            "Requires an explicit pattern, calendar and time "
+                            "zone.",
                         ),
                     )
-                elif iso_count == len(strs) and len(strs) >= 3:
+                elif (
+                    iso_count == len(strs)
+                    and len(strs) >= limits.min_pattern_sample
+                ):
                     suggest(
                         "semantic",
-                        "Confirmar fecha ISO-8601 en " + c,
+                        "Confirm ISO-8601 date in " + c,
                         rationale=(
-                            "Los valores de la muestra cumplen una forma "
-                            "léxica ISO."
+                            "The sampled values follow an ISO lexical form."
                         ),
-                        conf="high",
+                        # Three matching values used to earn "high".
+                        conf=(
+                            "high"
+                            if len(strs)
+                            >= limits.min_iso_sample_high_confidence
+                            else "medium"
+                        ),
                         ev={
                             "sample_matches": iso_count,
                             "sample_rows": len(strs),
+                            "non_iso_share_upper_95": rule_of_three_upper(
+                                len(strs)
+                            ),
                         },
                         caveats=(
-                            "La apariencia léxica no garantiza fecha "
-                            "calendario válida.",
+                            "Lexical appearance does not guarantee a valid "
+                            "calendar date.",
                         ),
                     )
                 if id_like:
@@ -646,15 +660,15 @@ def discover(
                         lambda v: v.isascii() and v.isdecimal()
                     )
                     if (
-                        len(strs) >= 3
+                        len(strs) >= limits.min_pattern_sample
                         and digit_only.all()
                         and widths.nunique() == 1
-                        and 1 <= int(widths.iloc[0]) <= 30
+                        and 1 <= int(widths.iloc[0]) <= limits.max_code_width
                     ):
                         width = int(widths.iloc[0])
                         suggest(
                             "rule",
-                            f"Confirmar patrón de código de {c}",
+                            f"Confirm the code pattern of {c}",
                             "validity",
                             "builtin.regex_fullmatch",
                             "value",
@@ -663,60 +677,67 @@ def discover(
                                 "pattern": "[0-9]{" + str(width) + "}",
                             },
                             "medium",
-                            "La muestra de códigos tiene longitud y "
-                            "caracteres uniformes.",
+                            "The sampled codes have uniform length and "
+                            "characters.",
                             {
                                 "sample_rows": len(strs),
                                 "width": width,
                                 "scope": const,
+                                "other_width_share_upper_95": (
+                                    rule_of_three_upper(len(strs))
+                                ),
                             },
                             (
-                                "Los catálogos históricos o nuevos pueden "
-                                "usar longitudes diferentes.",
+                                "Historical or new catalogues may use "
+                                "different lengths.",
                             ),
                         )
-                if not id_like and len(strs) >= 12:
+                if not id_like and len(strs) >= limits.min_category_sample:
                     try:
                         uniques = list(strs.unique())
                     except TypeError:
                         uniques = []
                     if (
                         1 < len(uniques) <= max_categories
-                        and len(uniques) / len(strs) <= 0.25
+                        and len(uniques) / len(strs)
+                        <= limits.max_category_unique_share
                     ):
                         suggest(
                             "rule",
-                            f"Confirmar dominio cerrado de {c}",
+                            f"Confirm the closed domain of {c}",
                             "validity",
                             "builtin.allowed_values",
                             "value",
                             {"operator": "in_set", "values": uniques},
                             "low",
-                            "Se observaron pocas categorías en la muestra.",
+                            "Few categories were observed in the sample.",
                             {
                                 "sample_distinct": len(uniques),
                                 "sample_rows": len(strs),
                                 "scope": const,
+                                "unseen_category_share": (
+                                    good_turing_unseen_mass(strs.tolist())
+                                ),
                             },
                             (
-                                "Una categoría no vista puede ser válida; "
-                                "revisar antes de aprobar.",
+                                "An unseen category may be valid; review "
+                                "before approving.",
                             ),
                         )
-        if logical in {"integer", "float", "decimal"} and _COUNT.search(c):
+        if logical in {"integer", "float", "decimal"} and has_role(c, "count"):
             suggest(
                 "rule",
-                f"Confirmar valores no negativos de {c}",
+                f"Confirm non-negative values of {c}",
                 "validity",
                 "builtin.value_range",
                 "value",
                 {"operator": "min", "value": 0},
                 "medium",
-                "El nombre sugiere una variable de conteo no negativa.",
+                "The name suggests a non-negative count variable.",
                 {"rows": n},
                 (
-                    "No aplica a diferencias, saldos, ajustes ni variables "
-                    "firmadas.",
+                    "Does not apply to differences, balances, adjustments or "
+                    "signed variables.",
                 ),
             )
         if (
@@ -731,56 +752,44 @@ def discover(
             if cardinality == nn:
                 suggest(
                     "rule",
-                    f"Confirmar identificador único {c}",
+                    f"Confirm unique identifier {c}",
                     "uniqueness",
                     "builtin.composite_uniqueness",
                     "table",
                     {"operator": "composite_unique", "key_fields": [c]},
                     "medium",
-                    "La columna no tiene duplicados observados entre valores "
-                    "presentes.",
+                    "The column has no observed duplicates among present "
+                    "values.",
                     {"non_null_rows": nn, "distinct_non_null": cardinality},
                     (
-                        "La ausencia de duplicados no demuestra que la clave "
-                        "sea única por diseño.",
+                        "The absence of duplicates does not prove the key is "
+                        "unique by design.",
                     ),
                 )
     # native datetime pairs: start/inicio to end/fin with compatible names
     date_columns = [c for c, t in logicals.items() if t == "datetime"]
-    begins = [c for c in date_columns if _BEGIN.search(c)]
-    ends = [c for c in date_columns if _END.search(c)]
-    for a in begins:
-        for b in ends:
-            if a == b:
-                continue
-            fa = re.sub(r"(?i)(start|begin|inicio|desde)", "", a).strip("_ -")
-            fb = re.sub(r"(?i)(end|finish|fin|hasta)", "", b).strip("_ -")
-            if fa != fb:
-                continue
-            ev = "builtin.column_compare"
-            proposals.append(
-                Recommendation(
-                    _key(ev, (a, b)),
-                    (a, b),
-                    "rule",
-                    f"Confirmar {a} <= {b}",
-                    "consistency",
-                    ev,
-                    "record",
-                    {
-                        "operator": "expression",
-                        "extensions": {"comparison": "lte"},
-                    },
-                    "medium",
-                    "Los nombres sugieren inicio y fin del mismo evento.",
-                    {"rows": n},
-                    (
-                        "Pueden existir registros excepcionales o cambios de "
-                        "significado.",
-                    ),
-                    tuple(sorted(REGISTRY[ev].backends)),
-                )
+    for a, b in start_end_pairs(date_columns):
+        ev = "builtin.column_compare"
+        proposals.append(
+            Recommendation(
+                _key(ev, (a, b)),
+                (a, b),
+                "rule",
+                f"Confirm {a} <= {b}",
+                "consistency",
+                ev,
+                "record",
+                {
+                    "operator": "expression",
+                    "extensions": {"comparison": "lte"},
+                },
+                "medium",
+                "The names suggest the start and end of the same event.",
+                {"rows": n},
+                ("Exceptional records or changes of meaning may exist.",),
+                tuple(sorted(REGISTRY[ev].backends)),
             )
+        )
     return DiscoveryReport(
         asset_id, "pandas", n, tuple(rows), tuple(proposals), tuple(warnings)
     )
@@ -830,17 +839,17 @@ def _discover_spark_schema(
                 _key(evaluator, (fld.name,)),
                 (fld.name,),
                 "rule",
-                "Revisar completitud de " + fld.name,
+                "Review completeness of " + fld.name,
                 "completeness",
                 evaluator,
                 "value",
                 {"operator": "not_null"},
                 "low",
-                "El esquema no permite conocer la tasa real de ausencias.",
+                "The schema does not reveal the real missing rate.",
                 {"schema_nullable": bool(fld.nullable)},
                 (
-                    "Requiere perfilamiento distribuido y revisión de "
-                    "obligatoriedad.",
+                    "Requires distributed profiling and a review of whether "
+                    "the field is required.",
                 ),
                 tuple(sorted(REGISTRY[evaluator].backends)),
             )

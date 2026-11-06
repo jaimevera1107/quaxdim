@@ -180,7 +180,7 @@ def test_locales_and_ambiguous_dates_are_not_guessed():
     df = pd.DataFrame({"FECHA": ["01/02/2025", "12/03/2025", "04/05/2025"]})
     r = discover(df)
     assert _pick(r, kind="semantic", field="FECHA").title.startswith(
-        "Confirmar formato regional"
+        "Confirm the regional date format"
     )
     assert r.profile[0]["logical_type"] == "string"
     assert not any(

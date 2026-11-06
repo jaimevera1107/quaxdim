@@ -114,9 +114,9 @@ quaxdim native-execute data.csv --contract contract.yaml --asset dataset
 | Catalog of quality dimensions | Conceptual registry, not complete evaluation coverage |
 | Recommendation and manual approval | Implemented for supported rules |
 | Native streaming execution on portable rule subset | Tested locally |
-| DuckDB and Polars native adaptors | Implemented; integration tests required in target environment |
+| DuckDB and Polars native adaptors | Tested locally; parity matrix with the CSV reader on text and Parquet edge cases |
 | PySpark batch adaptors | Implemented; integration tests required in target environment |
-| pandas compatibility layer | Retained, optional dependency |
+| pandas compatibility layer | Retained, optional dependency; `QualitySuite` is deprecated |
 | Excel / Parquet / 56 cataloged format families | Not all have native evaluators |
 | Spark Connect, Structured Streaming, full multidimensional automation | Not supported in this release candidate |
 
@@ -124,6 +124,8 @@ quaxdim native-execute data.csv --contract contract.yaml --asset dataset
 fixed-width regex, typed numeric range/comparison and compound uniqueness.
 The planner rejects unsupported semantics rather than silently converting types.
 Exact uniqueness checks may need large memory or an external engine.
+Rates are census measurements with identification bounds, not estimates
+with confidence intervals; see the statistical validity page.
 
 ## Why QuaxDim?
 
@@ -139,6 +141,7 @@ Exact uniqueness checks may need large memory or an external engine.
 - [Dimensions and methodology](docs/dimensions.es.md) (Spanish)
 - [Architecture and universal contracts](docs/architecture.es.md) (Spanish)
 - [Native execution and planner](docs/execution.es.md) (Spanish)
+- [Statistical validity and limitations](docs/statistical_validity.md)
 - [Release and PyPI publishing](RELEASE.md)
 - [Changelog](CHANGELOG.md) and [security policy](SECURITY.md)
 

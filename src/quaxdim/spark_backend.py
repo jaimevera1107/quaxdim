@@ -26,13 +26,15 @@ from .applicability import (
     EvaluationPlan,
     Reason,
 )
-from .evaluator_registry import supports_backend
+from .bounds import rate_bounds
+from .evaluator_registry import bound_model, supports_backend
 from .execution import (
     ContractExecutionReport,
     ContractRuleResult,
     EvaluationError,
     _failure_status,
 )
+from .missingness import empty_string_is_missing
 
 # Column comparison operators for the supported predicate operators.
 _COMPARISONS = {
@@ -176,7 +178,7 @@ def _missing_expr(
         )
     if isinstance(dtype, T.StringType):
         s = F.trim(c) if norm == "trim" else c
-        if p.get("empty_string"):
+        if empty_string_is_missing(p):
             missing = missing | (c == "")
         if p.get("whitespace_only"):
             missing = missing | (F.trim(c) == "")
@@ -1075,8 +1077,11 @@ class SparkContractExecutor:
         lower: float | None = None
         upper: float | None = None
         if eligible:
-            lower = passed / eligible
-            upper = (passed + unknown) / eligible
+            bounds = rate_bounds(
+                passed, failed, unknown, model=bound_model(evaluator)
+            )
+            lower, upper = bounds.lower, bounds.upper
+            assert lower is not None and upper is not None
             status = _failure_status(lower, upper, rule["threshold"])
         else:
             status = "NO_ELIGIBLE_DATA"
