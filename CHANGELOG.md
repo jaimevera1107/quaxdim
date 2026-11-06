@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.9.1 — 2026-11-06
+
 ### Audit fixes — Phase 6 (English messages and infinity policy)
 
 - **Behaviour change:** every user-facing string produced by the library
