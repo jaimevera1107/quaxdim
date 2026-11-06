@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 0.9.1 — 2026-11-06
+
+### Added
+- `report.to_frame()` on both execution reports: one row per rule, indexed by
+  `rule_id`, identifiers/status/counts first, for pipelines and CI gates
+  (`frame.query("status == 'FAIL'")`). `to_dict`/`to_json` stay the
+  dependency-free audit artefact.
+- Property-based invariants with Hypothesis
+  (`tests_validation/test_invariants_property.py`): the four counts partition
+  the eligible units, `lower <= measured <= upper` within `[0, 1]`, the
+  verdict follows from the bounds and the threshold, blanking a value or
+  duplicating a key never raises the lower bound, and the CSV, DuckDB and
+  Polars engines agree on generated tables.
+
 ### Fixed
 - The no-raw-values test also excludes the `sources` audit trail: like
   `generated_at`, its `modified_at` timestamp can contain the probed string
@@ -10,7 +24,24 @@
   the results, the only places a value read from the data could appear, and
   asserts separately that the audit trail carries file metadata only.
 
-## 0.9.1 — 2026-11-06
+### Changed
+- `scripts/release.ps1` releases in one command: bump, CHANGELOG section,
+  reinstall, tests, lint, types, checklist, commit, push, wait for CI, and
+  create the GitHub Release. It stops at the first failure and resumes on
+  re-run; `-DryRun` checks everything without committing. Approving the
+  `pypi` environment stays manual, because a published version can never be
+  replaced. New helper `tools/open_changelog_section.py`.
+- README states the positioning up front (discovery plus approval, and the
+  separation of "failed" from "could not be measured"), compares QuaxDim with
+  rule-first validators, says explicitly that there is no composite score,
+  and shows how to migrate off `QualitySuite`.
+- `QualitySuite` and `Check` are documented as **removed in 1.0**.
+
+## 0.9.0 — 2026-11-06
+
+Fixes every finding of the three external audits of 0.8.0rc1. Several
+changes alter verdicts or outputs of existing contracts; each is marked
+**Behaviour change** below. Discovery output is now English.
 
 ### Audit fixes — Phase 6 (English messages and infinity policy)
 
@@ -192,9 +223,3 @@
 
 Initial dimension catalog, contracts, applicability planner, evaluators,
 recommendation system and native adapters. See [docs](docs/) for details.
-
-## 0.9.0 — 2026-11-06
-
-Fixes every finding of the three external audits of 0.8.0rc1. Several
-changes alter verdicts or outputs of existing contracts; each is marked
-**Behaviour change** below. Discovery output is now English.

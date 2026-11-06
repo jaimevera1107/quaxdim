@@ -1,9 +1,10 @@
 from __future__ import annotations
-import argparse
+
 import hashlib
 import re
-from pathlib import Path
 import sys
+from pathlib import Path
+
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,6 +37,7 @@ def check():
         "RELEASE.md",
         "src/quaxdim/schemas/quality-contract.schema.json",
         "docs/architecture.es.md",
+        "scripts/release.ps1",
         "scripts/publish_release.ps1",
         "scripts/verify_pypi.ps1",
         "tools/check_native_release_tests.py",
