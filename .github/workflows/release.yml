@@ -19,7 +19,7 @@ jobs:
       PYSPARK_PYTHON: python
       PYSPARK_DRIVER_PYTHON: python
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.release.tag_name }}
           persist-credentials: false
