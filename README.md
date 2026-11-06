@@ -8,11 +8,11 @@
 Scalable · Context-aware · Explainable · Auditable
 
 [![CI](https://github.com/jaimevera1107/quaxdim/actions/workflows/ci.yml/badge.svg)](https://github.com/jaimevera1107/quaxdim/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/quaxdim)](https://pypi.org/project/quaxdim/)
-[![Python](https://img.shields.io/pypi/pyversions/quaxdim)](https://pypi.org/project/quaxdim/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-5922a7)](LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/quaxdim?label=PyPI&cacheSeconds=3600)](https://pypi.org/project/quaxdim/)
+[![Python](https://img.shields.io/pypi/pyversions/quaxdim?label=Python&cacheSeconds=3600)](https://pypi.org/project/quaxdim/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-5922a7)](https://github.com/jaimevera1107/quaxdim/blob/main/LICENSE)
 
-[English](README.md) · [Español](docs/README.es.md) · [Documentation](docs/) · [Contributing](CONTRIBUTING.md)
+[English](https://github.com/jaimevera1107/quaxdim/blob/main/README.md) · [Español](https://github.com/jaimevera1107/quaxdim/blob/main/docs/README.es.md) · [Documentation](https://github.com/jaimevera1107/quaxdim/tree/main/docs/) · [Contributing](https://github.com/jaimevera1107/quaxdim/blob/main/CONTRIBUTING.md)
 
 </div>
 
@@ -62,7 +62,7 @@ five-minute workflow below works with it. Python 3.10 or newer.
 
 ## Five-minute workflow
 
-The examples use [`examples/employees.csv`](examples/employees.csv):
+The examples use [`examples/employees.csv`](https://github.com/jaimevera1107/quaxdim/blob/main/examples/employees.csv):
 
 ```csv
 employee_id,status,hire_date,termination_date,headcount
@@ -193,7 +193,7 @@ can be traced to the exact inputs that produced it.
 
 Discovery is optional. A contract is a YAML or JSON document validated
 against the bundled schema (`src/quaxdim/schemas/quality-contract.schema.json`).
-The full example is in [`examples/contract_employees.yaml`](examples/contract_employees.yaml);
+The full example is in [`examples/contract_employees.yaml`](https://github.com/jaimevera1107/quaxdim/blob/main/examples/contract_employees.yaml);
 the parts you will edit most are these:
 
 ```yaml
@@ -374,15 +374,15 @@ never inferred and UTC is never assumed.
   supported.
 
 The reasoning behind each limit is in
-[docs/statistical_validity.md](docs/statistical_validity.md).
+[docs/statistical_validity.md](https://github.com/jaimevera1107/quaxdim/blob/main/docs/statistical_validity.md).
 
 ## Documentation
 
-- [Statistical validity and limitations](docs/statistical_validity.md)
-- [Native execution and planner](docs/execution.es.md) (Spanish)
-- [Dimensions and methodology](docs/dimensions.es.md) (Spanish)
-- [Architecture and universal contracts](docs/architecture.es.md) (Spanish)
-- [Changelog](CHANGELOG.md) · [Release process](RELEASE.md) · [Security policy](SECURITY.md)
+- [Statistical validity and limitations](https://github.com/jaimevera1107/quaxdim/blob/main/docs/statistical_validity.md)
+- [Native execution and planner](https://github.com/jaimevera1107/quaxdim/blob/main/docs/execution.es.md) (Spanish)
+- [Dimensions and methodology](https://github.com/jaimevera1107/quaxdim/blob/main/docs/dimensions.es.md) (Spanish)
+- [Architecture and universal contracts](https://github.com/jaimevera1107/quaxdim/blob/main/docs/architecture.es.md) (Spanish)
+- [Changelog](https://github.com/jaimevera1107/quaxdim/blob/main/CHANGELOG.md) · [Release process](https://github.com/jaimevera1107/quaxdim/blob/main/RELEASE.md) · [Security policy](https://github.com/jaimevera1107/quaxdim/blob/main/SECURITY.md)
 
 ## Development
 
@@ -398,6 +398,6 @@ absent and run in CI.
 ## License and references
 
 MIT-licensed code. The project logo has separate brand usage restrictions; see
-[assets/README.md](assets/README.md). Conceptual inspiration: R. Mahanti,
+[assets/README.md](https://github.com/jaimevera1107/quaxdim/blob/main/assets/README.md). Conceptual inspiration: R. Mahanti,
 *Data Quality: Dimensions, Measurement, Strategy, Management, and Governance*,
 ASQ Quality Press, 2019.
