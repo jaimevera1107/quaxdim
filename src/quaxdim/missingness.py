@@ -46,6 +46,17 @@ def nan_is_missing(policy: Mapping[str, Any]) -> bool:
     return bool(policy.get("nan_is_missing", NAN_IS_MISSING_DEFAULT))
 
 
+def infinities_are_invalid(policy: Mapping[str, Any]) -> bool:
+    """Return whether ±inf counts as an invalid value under ``policy``.
+
+    Off by default: an infinite value is then compared as a number
+    (``+inf >= 0`` passes a minimum rule). When on, an infinite value in a
+    targeted float field fails every rule, presence included, because it
+    is almost always a computation artefact rather than a measurement.
+    """
+    return bool(policy.get("infinities_are_invalid", False))
+
+
 def is_float_type(type_name: str) -> bool:
     """Return whether an engine type name denotes a floating-point type.
 

@@ -400,3 +400,59 @@ def test_numeric_parity_duckdb_parquet_and_polars(tmp_path):
     # Pairs: (1,2) pass, (-2,-3) fail, (null,1) unknown, (NaN,1) unknown,
     # (inf,inf) pass, (0,NaN) unknown, (5,4) fail.
     assert _counts(by_id["compare"])[1:] == (2, 2, 3, 0)
+
+
+# --- infinities_are_invalid ---------------------------------------------------
+
+
+def _infinity_contract(invalid):
+    contract = _numeric_contract()
+    if invalid:
+        for field in contract["assets"][0]["fields"]:
+            field["missing_policy"] = {"infinities_are_invalid": True}
+    return contract
+
+
+@pytest.mark.parametrize("engine", ["duckdb", "polars"])
+def test_infinities_are_compared_as_numbers_by_default(tmp_path, engine):
+    _require(engine)
+    pl = pytest.importorskip("polars")
+    path = tmp_path / "inf.parquet"
+    pl.DataFrame(
+        {"LOW": [1.0, math.inf], "HIGH": [2.0, math.inf]}
+    ).write_parquet(path)
+    source = path if engine == "duckdb" else pl.scan_parquet(path)
+    by_id = {
+        r.rule_id: r
+        for r in evaluate_optimized(
+            _infinity_contract(False), data={"data": source}
+        ).results
+    }
+    assert _counts(by_id["range"])[1:] == (2, 0, 0, 0)
+
+
+@pytest.mark.parametrize("engine", ["duckdb", "polars"])
+def test_infinities_fail_every_rule_when_declared_invalid(tmp_path, engine):
+    _require(engine)
+    pl = pytest.importorskip("polars")
+    path = tmp_path / "inf.parquet"
+    pl.DataFrame(
+        {"LOW": [1.0, math.inf], "HIGH": [2.0, math.inf]}
+    ).write_parquet(path)
+    source = path if engine == "duckdb" else pl.scan_parquet(path)
+    by_id = {
+        r.rule_id: r
+        for r in evaluate_optimized(
+            _infinity_contract(True), data={"data": source}
+        ).results
+    }
+    assert _counts(by_id["range"])[1:] == (1, 1, 0, 0)
+    assert _counts(by_id["compare"])[1:] == (1, 1, 0, 0)
+
+
+def test_infinity_policy_is_blocked_on_pandas_not_ignored():
+    pytest.importorskip("pandas")
+    from quaxdim import ApplicabilityPlanner
+
+    plan = ApplicabilityPlanner().plan(_infinity_contract(True))
+    assert {d.status for d in plan.decisions} == {"UNSUPPORTED"}

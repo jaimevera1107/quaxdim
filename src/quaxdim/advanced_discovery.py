@@ -1011,7 +1011,7 @@ def _single_asset_advice(
         recs.append(
             _advice(
                 "rule",
-                f"Revisar obligatoriedad de {name}",
+                f"Review whether {name} is required",
                 aid,
                 [name],
                 dimension="completeness",
@@ -1021,11 +1021,11 @@ def _single_asset_advice(
                 priority="high" if "identifier" in roles else "medium",
                 cost="aggregate",
                 rationale=(
-                    "La completitud es medible; la obligatoriedad se decide "
-                    "por el uso."
+                    "Completeness is measurable; whether the field is "
+                    "required depends on its use."
                 ),
                 evidence=ev,
-                prerequisites=("Confirmar obligatoriedad de la variable",),
+                prerequisites=("Confirm that the field is required",),
             )
         )
         if not counted:
@@ -1038,7 +1038,7 @@ def _single_asset_advice(
                         [name],
                         priority="low",
                         cost="aggregate",
-                        rationale="Fuera del presupuesto de columnas.",
+                        rationale="Outside the column budget.",
                     )
                 )
         if "count" in roles:
@@ -1046,7 +1046,7 @@ def _single_asset_advice(
                 recs.append(
                     _advice(
                         "rule",
-                        f"Confirmar no negatividad de {name}",
+                        f"Confirm that {name} is non-negative",
                         aid,
                         [name],
                         dimension="validity",
@@ -1056,13 +1056,13 @@ def _single_asset_advice(
                         priority="high",
                         cost="aggregate",
                         rationale=(
-                            "Nombre y tipo sugieren conteo; los ajustes "
-                            "pueden ser negativos."
+                            "Name and type suggest a count; adjustments "
+                            "may be negative."
                         ),
                         evidence={"physical_type": meta["physical_type"]},
                         caveats=(
-                            "No aplicar a saldos, diferencias o ajustes "
-                            "firmados.",
+                            "Do not apply to balances, differences or signed "
+                            "adjustments.",
                         ),
                     )
                 )
@@ -1070,18 +1070,18 @@ def _single_asset_advice(
                 recs.append(
                     _advice(
                         "semantic",
-                        f"Declarar tipo numérico para {name}",
+                        f"Declare a numeric type for {name}",
                         aid,
                         [name],
                         priority="high",
                         cost="aggregate",
                         rationale=(
-                            "Parece conteo, pero el tipo es lexical o "
-                            "desconocido."
+                            "Looks like a count, but the type is lexical or "
+                            "unknown."
                         ),
                         prerequisites=(
-                            "Definir conversión, locale, nulos y vigencia "
-                            "temporal",
+                            "Define conversion, locale, nulls and validity "
+                            "period",
                         ),
                     )
                 )
@@ -1092,7 +1092,7 @@ def _single_asset_advice(
             recs.append(
                 _advice(
                     "semantic",
-                    f"Confirmar interpretación temporal de {name}",
+                    f"Confirm the temporal interpretation of {name}",
                     aid,
                     [name],
                     priority="medium",
@@ -1103,11 +1103,9 @@ def _single_asset_advice(
                         "iso_lexical_matches": iso,
                         "ambiguous_date_patterns": ambiguous,
                     },
-                    prerequisites=(
-                        "Declarar formato, zona horaria y calendario",
-                    ),
+                    prerequisites=("Declare format, time zone and calendar",),
                     caveats=(
-                        "No interpretar fechas ambiguas automáticamente.",
+                        "Do not interpret ambiguous dates automatically.",
                     ),
                 )
             )
@@ -1124,21 +1122,21 @@ def _single_asset_advice(
                 recs.append(
                     _advice(
                         "missing_policy",
-                        f"Revisar marcadores de ausencia en {name}",
+                        f"Review missing-value markers in {name}",
                         aid,
                         [name],
                         expectation={"tokens": sentinels},
                         priority="medium",
                         cost="schema",
                         rationale=(
-                            "La muestra contiene posibles marcadores de "
-                            "ausencia."
+                            "The sample contains possible missing-value "
+                            "markers."
                         ),
                         evidence={
                             "observed_token_types": len(sentinels),
                             "sample_rows": len(vals),
                         },
-                        caveats=("Algunos tokens tienen significado válido.",),
+                        caveats=("Some tokens have a valid meaning.",),
                     )
                 )
             if "identifier" in roles and logical == "string":
@@ -1157,7 +1155,7 @@ def _single_asset_advice(
                         recs.append(
                             _advice(
                                 "rule",
-                                f"Confirmar anchura de código {name}",
+                                f"Confirm the code width of {name}",
                                 aid,
                                 [name],
                                 dimension="validity",
@@ -1170,8 +1168,8 @@ def _single_asset_advice(
                                 priority="medium",
                                 cost="aggregate",
                                 rationale=(
-                                    "Patrón uniforme observado en muestra "
-                                    "acotada."
+                                    "Uniform pattern observed in a bounded "
+                                    "sample."
                                 ),
                                 evidence={
                                     "sample_non_missing": len(strict),
@@ -1183,8 +1181,7 @@ def _single_asset_advice(
                                     ),
                                 },
                                 caveats=(
-                                    "Códigos históricos pueden variar de "
-                                    "longitud.",
+                                    "Historical codes may vary in length.",
                                 ),
                             )
                         )
@@ -1198,7 +1195,7 @@ def _single_asset_advice(
                     recs.append(
                         _advice(
                             "rule",
-                            f"Revisar dominio candidato de {name}",
+                            f"Review the candidate domain of {name}",
                             aid,
                             [name],
                             dimension="validity",
@@ -1211,8 +1208,8 @@ def _single_asset_advice(
                             priority="medium",
                             cost="external",
                             rationale=(
-                                "Dominio deducido de muestra; no demuestra "
-                                "mundo cerrado."
+                                "Domain inferred from a sample; it does not "
+                                "prove a closed world."
                             ),
                             evidence={
                                 "distinct_in_sample": len(unique),
@@ -1222,7 +1219,8 @@ def _single_asset_advice(
                                 "unseen_category_share": unseen,
                             },
                             prerequisites=(
-                                "Verificar catálogo oficial y su vigencia",
+                                "Verify the official catalogue and its "
+                                "validity period",
                             ),
                         )
                     )
@@ -1246,7 +1244,7 @@ def _single_asset_advice(
                 recs.append(
                     _advice(
                         "rule",
-                        f"Confirmar anchura de código {name}",
+                        f"Confirm the code width of {name}",
                         aid,
                         [name],
                         dimension="validity",
@@ -1259,8 +1257,8 @@ def _single_asset_advice(
                         priority="medium",
                         cost="aggregate",
                         rationale=(
-                            "Todos los valores no vacíos tienen el mismo "
-                            "ancho y solo dígitos."
+                            "Every non-empty value has the same width and "
+                            "only digits."
                         ),
                         evidence={
                             "scope": "full_aggregate",
@@ -1269,8 +1267,8 @@ def _single_asset_advice(
                             "width": lo,
                         },
                         caveats=(
-                            "Un patrón observado no es un estándar "
-                            "obligatorio; validar cambios históricos.",
+                            "An observed pattern is not a mandatory standard; "
+                            "validate historical changes.",
                         ),
                     )
                 )
@@ -1295,7 +1293,7 @@ def _single_asset_advice(
                     recs.append(
                         _advice(
                             "rule",
-                            f"Confirmar clave candidata {name}",
+                            f"Confirm candidate key {name}",
                             aid,
                             [name],
                             dimension="uniqueness",
@@ -1308,8 +1306,8 @@ def _single_asset_advice(
                             priority="high",
                             cost="exact_scan",
                             rationale=(
-                                "Sin duplicación entre presentes en escaneo "
-                                "limitado exacto."
+                                "No duplication among present values in a "
+                                "bounded exact scan."
                             ),
                             evidence={
                                 "exact_non_null_distinct": exact[
@@ -1319,8 +1317,8 @@ def _single_asset_advice(
                                 "exact": True,
                             },
                             caveats=(
-                                "No equivale a una obligación de unicidad por "
-                                "diseño.",
+                                "Not equivalent to a uniqueness obligation by "
+                                "design.",
                             ),
                         )
                     )
@@ -1342,7 +1340,7 @@ def _single_asset_advice(
                     recs.append(
                         _advice(
                             "hypothesis",
-                            f"Investigar posible unicidad de {name}",
+                            f"Investigate possible uniqueness of {name}",
                             aid,
                             [name],
                             dimension="uniqueness",
@@ -1359,7 +1357,7 @@ def _single_asset_advice(
                                 "approx_relative_error": rse,
                             },
                             prerequisites=(
-                                "Validación exacta sobre la clave propuesta",
+                                "Exact validation of the proposed key",
                             ),
                         )
                     )
@@ -1391,15 +1389,15 @@ def _single_asset_advice(
                 recs.append(
                     _advice(
                         "hypothesis",
-                        f"Investigar clave compuesta {pair[0]} + {pair[1]}",
+                        f"Investigate composite key {pair[0]} + {pair[1]}",
                         aid,
                         list(pair),
                         dimension="uniqueness",
                         cost="exact_scan",
                         priority="high",
                         rationale=(
-                            "Candidata no duplicada en reservorio; sin prueba "
-                            "global."
+                            "Candidate not duplicated in the reservoir; no "
+                            "global proof."
                         ),
                         evidence={
                             "sample_pairs": len(valid),
@@ -1415,7 +1413,7 @@ def _single_asset_advice(
                             ),
                         },
                         prerequisites=(
-                            "Validación distribuida exacta de la clave",
+                            "Exact distributed validation of the key",
                         ),
                     )
                 )
@@ -1431,7 +1429,7 @@ def _single_asset_advice(
         recs.append(
             _advice(
                 "rule",
-                f"Revisar orden temporal {n1} <= {n2}",
+                f"Review temporal order {n1} <= {n2}",
                 aid,
                 [n1, n2],
                 dimension="consistency",
@@ -1444,10 +1442,9 @@ def _single_asset_advice(
                 priority="high",
                 cost="aggregate",
                 rationale=(
-                    "Dos campos temporalmente tipados con nombres de "
-                    "inicio y fin."
+                    "Two temporally typed fields with start and end names."
                 ),
-                prerequisites=("Confirmar que pertenecen al mismo evento",),
+                prerequisites=("Confirm that they belong to the same event",),
             )
         )
     # Candidate functional dependencies are useful only with repeated
@@ -1491,15 +1488,15 @@ def _single_asset_advice(
                     recs.append(
                         _advice(
                             "hypothesis",
-                            f"Investigar dependencia {key} → {target}",
+                            f"Investigate dependency {key} → {target}",
                             aid,
                             [key, target],
                             dimension="consistency",
                             cost="exact_scan",
                             priority="medium",
                             rationale=(
-                                "Un código repetido conserva el mismo nombre "
-                                "en el reservorio."
+                                "A repeated code keeps the same name in the "
+                                "reservoir."
                             ),
                             evidence={
                                 "sample_pairs": support.pairs,
@@ -1511,8 +1508,8 @@ def _single_asset_advice(
                                 "sample_based": True,
                             },
                             prerequisites=(
-                                "Verificar versión de catálogo y la "
-                                "dependencia a escala completa",
+                                "Verify the catalogue version and the "
+                                "dependency at full scale",
                             ),
                         )
                     )
@@ -1553,7 +1550,7 @@ def _relationship_advice(
                         out.append(
                             _advice(
                                 "relationship",
-                                f"Investigar referencia {aid}.{col['name']} ↔ "
+                                f"Investigate reference {aid}.{col['name']} ↔ "
                                 f"{bid}.{other['name']}",
                                 aid,
                                 [col["name"], other["name"]],
@@ -1562,8 +1559,8 @@ def _relationship_advice(
                                 confidence="low",
                                 priority="high",
                                 rationale=(
-                                    "Compatibilidad de nombres; no se "
-                                    "verificó integridad referencial."
+                                    "Name compatibility; referential "
+                                    "integrity was not verified."
                                 ),
                                 evidence={
                                     "other_asset": bid,
@@ -1571,10 +1568,10 @@ def _relationship_advice(
                                     "schema_only": True,
                                 },
                                 prerequisites=(
-                                    "Definir dirección padre/hijo, claves, "
-                                    "nulos y vigencia",
-                                    "Unir fuentes con el motor "
-                                    "correspondiente",
+                                    "Define parent/child direction, keys, "
+                                    "nulls and validity period",
+                                    "Join the sources with the corresponding "
+                                    "engine",
                                 ),
                             )
                         )
@@ -1711,7 +1708,7 @@ def discover_advanced(
         recommendations.append(
             _advice(
                 "reference",
-                f"Confirmar correspondencia {signature} en {ref_id}",
+                f"Confirm the mapping of {signature} in {ref_id}",
                 a,
                 [column],
                 dimension="validity",
@@ -1720,8 +1717,8 @@ def discover_advanced(
                 priority="high",
                 cost="external",
                 rationale=(
-                    "Existe un catálogo declarado por el usuario, aún no "
-                    "verificado."
+                    "A user-declared catalogue exists but has not been "
+                    "verified yet."
                 ),
                 evidence={
                     "reference_id": ref_id,
@@ -1731,8 +1728,7 @@ def discover_advanced(
                 },
                 prerequisites=(
                     "Vincular referencia verificada",
-                    "Definir dirección, período y política para códigos no "
-                    "encontrados",
+                    "Define direction, period and policy for codes not found",
                 ),
             )
         )
@@ -1760,7 +1756,7 @@ def discover_advanced(
                     recommendations.append(
                         _advice(
                             "hypothesis",
-                            f"Investigar cambio de ausencias en "
+                            f"Investigate change in missing values in "
                             f"{aid}.{c['name']}",
                             aid,
                             [c["name"]],
@@ -1768,8 +1764,8 @@ def discover_advanced(
                             priority="medium",
                             cost="aggregate",
                             rationale=(
-                                "Desviación absoluta de 10 puntos o más "
-                                "frente a línea base."
+                                "Absolute deviation of 10 points or more from "
+                                "the baseline."
                             ),
                             evidence={
                                 "null_rate_now": round(rate, 6),
@@ -1779,12 +1775,12 @@ def discover_advanced(
                                 ),
                             },
                             prerequisites=(
-                                "Confirmar equivalencia de poblaciones, "
-                                "período y política de nulos",
+                                "Confirm equivalence of populations, period "
+                                "and null policy",
                             ),
                             caveats=(
-                                "El cambio puede ser legítimo y no demuestra "
-                                "error.",
+                                "The change may be legitimate and does not "
+                                "prove an error.",
                             ),
                         )
                     )

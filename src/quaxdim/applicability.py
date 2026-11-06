@@ -23,6 +23,7 @@ from .contract_validation import (
     validate_contract_structure,
 )
 from .evaluator_registry import Capability, capabilities
+from .missingness import infinities_are_invalid
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -515,6 +516,24 @@ class ApplicabilityPlanner:
                         "UNSUPPORTED",
                         "OPERATOR_UNSUPPORTED",
                         "Evaluator does not implement the operator",
+                    )
+                declared_fields: dict[str, Any] = {
+                    f.get("name", ""): f
+                    for f in (asset or {}).get("fields", [])
+                }
+                if any(
+                    infinities_are_invalid(
+                        declared_fields.get(c, {}).get("missing_policy", {})
+                    )
+                    for c in cols
+                ):
+                    # Implemented on the native engines only; blocking here
+                    # keeps the pandas engine from passing +inf silently.
+                    note(
+                        "UNSUPPORTED",
+                        "INFINITY_POLICY_UNSUPPORTED",
+                        "infinities_are_invalid is enforced by the native "
+                        "engines (evaluate_optimized), not by pandas",
                     )
                 if len(cols) < capability.min_fields or (
                     capability.max_fields is not None

@@ -52,9 +52,12 @@ Which tokens count as missing (`""`, `N/A`, whitespace, NaN) is declared
 per field in `missing_policy`; the defaults are the same on every engine
 (`quaxdim.missingness`). How a CSV is read is declared per asset in
 `read_options`, and structurally malformed rows are errors, not missing
-values. Infinite values are compared as numbers: `+inf >= 0` passes a
-minimum rule. The contract field `infinities_are_invalid` is reserved and
-not yet enforced by any engine.
+values. Infinite values are compared as numbers by default: `+inf >= 0` passes a
+minimum rule. Declaring `missing_policy.infinities_are_invalid: true` on a
+float field makes every infinite value fail every rule on that field,
+presence included, on the native engines (DuckDB, Polars, Spark); the
+pandas planner blocks such rules as `UNSUPPORTED` rather than ignoring the
+policy.
 
 ## Discovery produces hypotheses, not facts
 

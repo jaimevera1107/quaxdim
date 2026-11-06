@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Audit fixes — Phase 6 (English messages and infinity policy)
+
+- **Behaviour change:** every user-facing string produced by the library
+  is now English: recommendation titles, rationales, caveats and
+  prerequisites of both advisors, and the dimension catalogue
+  (`DimensionSpec.name_es` is now `name`; `dimension_es` in legacy result
+  dictionaries is now `dimension_name`). Code that matched Spanish titles
+  must be updated.
+- `missing_policy.infinities_are_invalid` is enforced: when true, an
+  infinite value in a float field fails every rule on that field on
+  DuckDB, Polars and Spark; the pandas planner blocks such rules as
+  `UNSUPPORTED` instead of passing `+inf` silently. Default stays false
+  (infinities compare as numbers).
+
 ### Audit fixes — Phase 5 (documentation and validation)
 
 - New `docs/statistical_validity.md`: identification bounds vs confidence
@@ -18,9 +32,6 @@
 - Splitting `advanced_discovery.py` by source (`sources/csv.py`, ...): a
   pure code move, left for its own commit so that it does not mix with
   semantic changes.
-- A message catalogue (i18n) replacing Spanish strings embedded in code.
-- `infinities_are_invalid`: declared in the schema, enforced by no engine;
-  needs a product decision (documented as a limitation).
 - Spark execution could not be run in the fixing environment; the Spark
   paths changed only where shared code changed and must be run in CI.
 

@@ -253,7 +253,7 @@ class QualityReport:
             rows.append(
                 {
                     "dimension": dim,
-                    "dimension_es": CATALOG[dim].name_es
+                    "dimension_name": CATALOG[dim].name
                     if dim in CATALOG
                     else dim,
                     "status": status,

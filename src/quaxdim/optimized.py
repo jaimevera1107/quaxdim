@@ -41,6 +41,7 @@ from .evaluator_registry import bound_model
 from .missingness import (
     NEVER_NULL_SENTINEL,
     empty_string_is_missing,
+    infinities_are_invalid,
     is_float_type,
     nan_is_missing,
 )
@@ -707,10 +708,20 @@ def _sql_state(
         )
         + ")"
     )
+    invalid = " OR ".join(
+        f"isinf({_esc(n)})"
+        for n in names
+        if n in float_fields
+        and infinities_are_invalid(fields[n].get("missing_policy", {}))
+    )
     if evaluator == "builtin.presence":
+        if invalid:
+            return f"CASE WHEN {missing} OR {invalid} THEN 0 ELSE 1 END"
         return f"CASE WHEN {missing} THEN 0 ELSE 1 END"
     policy = _NULL_STATES[metric.get("null_policy", "indeterminate")]
     ok = _sql_ok(rule, evaluator)
+    if invalid:
+        ok = f"({ok}) AND NOT ({invalid})"
     return f"CASE WHEN {missing} THEN {policy} WHEN ({ok}) THEN 1 ELSE 0 END"
 
 
@@ -879,7 +890,16 @@ def _polars_expr(
         ]
     )
     evaluator = metric["evaluator"]
+    invalid_checks = [
+        pl.col(n).is_infinite()
+        for n in names
+        if n in float_fields
+        and infinities_are_invalid(fields[n].get("missing_policy", {}))
+    ]
+    invalid = pl.any_horizontal(invalid_checks) if invalid_checks else None
     if evaluator == "builtin.presence":
+        if invalid is not None:
+            return pl.when(missing | invalid).then(0).otherwise(1)
         return pl.when(missing).then(0).otherwise(1)
     a = pl.col(names[0])
     ex = rule["expectation"]
@@ -909,6 +929,8 @@ def _polars_expr(
         ok = a.str.contains("^(?:" + ex["pattern"] + ")$")
     else:
         raise ValueError("Unknown portable evaluator")
+    if invalid is not None:
+        ok = ok & ~invalid
     return (
         pl.when(missing)
         .then(_NULL_STATES[metric.get("null_policy", "indeterminate")])
@@ -1114,7 +1136,19 @@ def _spark_expr(
             name, fields[name], F, is_float=name in float_fields
         )
     evaluator = metric["evaluator"]
+    invalid: SparkColumn | None = None
+    for n in names:
+        if n in float_fields and infinities_are_invalid(
+            fields[n].get("missing_policy", {})
+        ):
+            column = _spark_col(n, F)
+            check = (column == F.lit(float("inf"))) | (
+                column == F.lit(float("-inf"))
+            )
+            invalid = check if invalid is None else (invalid | check)
     if evaluator == "builtin.presence":
+        if invalid is not None:
+            return F.when(missing | invalid, F.lit(0)).otherwise(F.lit(1))
         return F.when(missing, F.lit(0)).otherwise(F.lit(1))
     a = _spark_col(names[0], F)
     ex = rule["expectation"]
@@ -1144,6 +1178,8 @@ def _spark_expr(
         ok = a.rlike("^(?:" + ex["pattern"] + ")$")
     else:
         raise ValueError("Unknown portable evaluator")
+    if invalid is not None:
+        ok = ok & ~invalid
     return (
         F.when(
             missing,
