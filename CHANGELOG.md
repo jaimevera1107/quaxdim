@@ -182,3 +182,9 @@
 
 Initial dimension catalog, contracts, applicability planner, evaluators,
 recommendation system and native adapters. See [docs](docs/) for details.
+
+## 0.9.0 — 2026-11-06
+
+Fixes every finding of the three external audits of 0.8.0rc1. Several
+changes alter verdicts or outputs of existing contracts; each is marked
+**Behaviour change** below. Discovery output is now English.

@@ -9,7 +9,7 @@ try {
     $version = (python tools/read_project_version.py).Trim()
     if ($LASTEXITCODE -ne 0) { throw 'No pude leer la versión.' }
     $tag = "v$version"
-    if ((git status --porcelain).Count -gt 0) { throw 'Tienes cambios sin confirmar. Haz commit y push primero.' }
+    if (@(git status --porcelain).Count -gt 0) { throw 'Tienes cambios sin confirmar. Haz commit y push primero.' }
     git fetch origin main --tags
     if ($LASTEXITCODE -ne 0) { throw 'No se pudo consultar el remoto.' }
     $head = (git rev-parse HEAD).Trim()
@@ -39,3 +39,4 @@ try {
     Write-Host 'La carga a PyPI solo se hace después de las pruebas y aprobación del entorno.'
 }
 finally { Pop-Location }
+

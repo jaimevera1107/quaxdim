@@ -26,7 +26,7 @@ tracks applicability, missing evidence and indeterminate outcomes.
 The methodology is informed by Rupa Mahanti's *Data Quality: Dimensions,
 Measurement, Strategy, Management, and Governance*; it does not reprint the book.
 
-> **Release candidate (0.8.0rc1).** APIs and engine coverage may change before 1.0.
+> **Release candidate (0.9.0).** APIs and engine coverage may change before 1.0.
 > The dimension catalog is conceptual; it is **not** a claim that every dimension
 > has an implemented or empirically validated metric.
 
@@ -108,7 +108,7 @@ quaxdim native-execute data.csv --contract contract.yaml --asset dataset
 
 ## Supported today versus planned
 
-| Capability | Status in 0.8.0rc1 |
+| Capability | Status in 0.9.0 |
 | --- | --- |
 | CSV/TSV/gzip streaming, bounded profiling | Tested locally |
 | Catalog of quality dimensions | Conceptual registry, not complete evaluation coverage |
