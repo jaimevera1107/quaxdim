@@ -1,42 +1,44 @@
 param([string]$Owner = 'jaimevera1107', [string]$Repo = 'quaxdim')
-$ErrorActionPreference = 'Stop'
+# Native commands (git, gh) write progress to stderr; under 'Stop' PowerShell 5
+# turns that into a terminating error. Exit codes are checked explicitly instead.
+$ErrorActionPreference = 'Continue'
 Set-StrictMode -Version Latest
 $ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Push-Location $ProjectRoot
 try {
     python tools/check_release.py
-    if ($LASTEXITCODE -ne 0) { throw 'El chequeo de release falló.' }
+    if ($LASTEXITCODE -ne 0) { throw 'Release check failed.' }
     $version = (python tools/read_project_version.py).Trim()
-    if ($LASTEXITCODE -ne 0) { throw 'No pude leer la versión.' }
+    if ($LASTEXITCODE -ne 0) { throw 'Could not read the version.' }
     $tag = "v$version"
-    if (@(git status --porcelain).Count -gt 0) { throw 'Tienes cambios sin confirmar. Haz commit y push primero.' }
+    if (@(git status --porcelain).Count -gt 0) { throw 'Uncommitted changes. Commit and push first.' }
     git fetch origin main --tags
-    if ($LASTEXITCODE -ne 0) { throw 'No se pudo consultar el remoto.' }
+    if ($LASTEXITCODE -ne 0) { throw 'Could not reach the remote.' }
     $head = (git rev-parse HEAD).Trim()
     $remoteHead = (git rev-parse origin/main).Trim()
-    if ($head -ne $remoteHead) { throw 'HEAD y origin/main no coinciden. Publica o actualiza main antes de liberar.' }
-    git rev-parse "refs/tags/$tag" 2>$null | Out-Null
-    if ($LASTEXITCODE -eq 0) { throw "Ya existe el tag $tag. No se reutilizan versiones." }
+    if ($head -ne $remoteHead) { throw 'HEAD and origin/main differ. Push or update main before releasing.' }
+    if (@(git tag --list $tag).Count -gt 0) { throw "Tag $tag already exists. Versions are never reused." }
     gh auth status
-    if ($LASTEXITCODE -ne 0) { throw 'Necesitas iniciar sesión en GitHub CLI con gh auth login.' }
+    if ($LASTEXITCODE -ne 0) { throw 'Sign in to GitHub CLI with gh auth login.' }
     $runs = gh run list --repo "$Owner/$Repo" --workflow ci.yml --branch main --limit 20 --json headSha,conclusion,createdAt | ConvertFrom-Json
-    if ($LASTEXITCODE -ne 0) { throw 'No se pudo leer el CI.' }
+    if ($LASTEXITCODE -ne 0) { throw 'Could not read CI runs.' }
     $verified = @($runs | Where-Object { $_.headSha -eq $head -and $_.conclusion -eq 'success' })
-    if ($verified.Count -eq 0) { throw "No hay ejecución CI aprobada del commit $head. Revisa GitHub Actions." }
-    Write-Host "Versión: $version; commit validado: $head"
-    Write-Host 'Confirma ANTES: el Trusted Publisher en PyPI, el environment pypi y su revisión obligatoria.'
-    $confirmation = Read-Host "Escribe PUBLICAR para crear la release $tag que activa la subida a PyPI"
-    if ($confirmation -cne 'PUBLICAR') { Write-Host 'Cancelado, sin publicar.'; exit 0 }
+    if ($verified.Count -eq 0) { throw "No successful CI run for commit $head. Check GitHub Actions." }
+    Write-Host "Version: $version; validated commit: $head"
+    Write-Host 'Confirm FIRST: the Trusted Publisher on PyPI, the pypi environment and its required review.'
+    $confirmation = Read-Host "Type PUBLISH to create release $tag, which triggers the PyPI upload"
+    if ($confirmation -cne 'PUBLISH') { Write-Host 'Cancelled; nothing published.'; exit 0 }
     git tag -a $tag -m "QuaxDim $version"
-    if ($LASTEXITCODE -ne 0) { throw 'No se pudo crear el tag.' }
+    if ($LASTEXITCODE -ne 0) { throw 'Could not create the tag.' }
     git push origin $tag
-    if ($LASTEXITCODE -ne 0) { throw 'Tag local creado, pero no subido; revisa antes de repetir.' }
+    if ($LASTEXITCODE -ne 0) { throw 'Local tag created but not pushed; check before retrying.' }
     $releaseOptions = @()
     if ($version -match '(?:a|b|rc)[0-9]+') { $releaseOptions += '--prerelease' }
     gh release create $tag --repo "$Owner/$Repo" --verify-tag --title "QuaxDim $version" --generate-notes @releaseOptions
-    if ($LASTEXITCODE -ne 0) { throw 'El tag ya está remoto, pero no pude crear la GitHub Release.' }
-    Write-Host "Publicación iniciada: https://github.com/$Owner/$Repo/actions/workflows/release.yml"
-    Write-Host 'La carga a PyPI solo se hace después de las pruebas y aprobación del entorno.'
+    if ($LASTEXITCODE -ne 0) { throw 'Tag is on the remote, but the GitHub Release could not be created.' }
+    Write-Host "Release started: https://github.com/$Owner/$Repo/actions/workflows/release.yml"
+    Write-Host 'The PyPI upload happens only after the tests and the environment approval.'
 }
-finally { Pop-Location }
-
+finally {
+    Pop-Location
+}
