@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### Audit fixes — Phase 2 (reading and engine parity)
+
+- New `asset.read_options` (schema addition, backward compatible):
+  `delimiter`, `encoding`, `quote_char`, `header`, `malformed_rows`,
+  `max_field_chars`. Discovery records the dialect it used and
+  `build_reviewed_contract` copies it into the contract, so evaluation reads
+  the same table (audit H6). Previously `discover_advanced(csv_delimiter=)`
+  had no counterpart in `evaluate_optimized`.
+- DuckDB reads CSV with an explicit, strict dialect (`auto_detect=false`,
+  `strict_mode=true`); its sniffer could read a file as a single column.
+- **Behaviour change:** malformed CSV is an ERROR on every engine: rows with
+  too few or too many fields, duplicate or empty header names, oversized
+  fields. Before, `csv_stream` counted a short row's missing field as an
+  ordinary missing value, and DuckDB/Polars silently renamed duplicate
+  headers (`A_1`, `A_duplicated_0`); Polars padded short rows.
+- Engines that cannot decode the declared encoding block the rule
+  (`UNSUPPORTED`) instead of misreading text.
+- Discovery's DuckDB path uses the same strict dialect; discovery on
+  `csv_stream` still profiles malformed files and warns, because it is
+  exploratory, but the resulting contract refuses them at evaluation.
+- New parity matrix `tests_validation/test_read_options_parity.py` (BOM,
+  CRLF, quoted line breaks and delimiters, doubled quotes, gzip, tokens,
+  blanks, duplicates, NaN/inf/null on Parquet) across csv_stream, DuckDB
+  and Polars.
+
 ### Audit fixes — Phase 1 (verdict correctness)
 
 - **Behaviour change:** uniqueness bounds are no longer row-local. An

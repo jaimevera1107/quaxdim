@@ -9,8 +9,6 @@ are returned. Unsupported semantics are BLOCKED, never coerced into PASS.
 
 from __future__ import annotations
 
-import csv
-import gzip
 import json
 import math
 import re
@@ -27,6 +25,15 @@ from .contract_validation import (
     identity_key_problem,
     unknown_dimension_ids,
     validate_contract_structure,
+)
+from .csv_dialect import (
+    CsvDialectError,
+    CsvReadOptions,
+    duckdb_csv_relation,
+    is_csv_path,
+    iter_records,
+    read_header,
+    validate_structure,
 )
 from .evaluator_registry import bound_model
 from .missingness import (
@@ -481,6 +488,32 @@ def _plan_rule(
     return "READY", "Safe portable subset"
 
 
+def _read_options_problem(
+    asset: Mapping[str, Any] | None, source: Any, engine: str
+) -> tuple[str, str] | None:
+    """Return a blocking verdict when a CSV cannot be read as declared."""
+    if asset is None:
+        return None
+    if not is_csv_path(source):
+        if asset.get("read_options"):
+            return (
+                "INVALID_CONTRACT",
+                "read_options are only valid for CSV sources",
+            )
+        return None
+    try:
+        options = CsvReadOptions.from_asset(asset, path=source)
+    except CsvDialectError as exc:
+        return "INVALID_CONTRACT", f"Invalid read_options: {exc}"
+    if options.engine_encoding(engine) is None:
+        return (
+            "UNSUPPORTED",
+            f"Engine {engine} cannot decode {options.encoding}; "
+            "use engine='csv_stream'",
+        )
+    return None
+
+
 def plan_optimized(
     contract: Mapping[str, Any],
     *,
@@ -512,6 +545,10 @@ def plan_optimized(
             or getattr(src, "isStreaming", False)
         )
     }
+    read_problems = {
+        aid: _read_options_problem(assets.get(aid), src, engines[aid])
+        for aid, src in data.items()
+    }
     rules = []
     for rule in contract.get("rules", []):
         aid = rule.get("asset_id", "")
@@ -523,6 +560,9 @@ def plan_optimized(
             status, reason = _plan_rule(
                 rule, metric, assets.get(aid), chosen, dimensions
             )
+            problem = read_problems.get(aid)
+            if status == "READY" and problem is not None:
+                status, reason = problem
             if aid in unsafe_spark:
                 status, reason = (
                     "UNSUPPORTED",
@@ -722,16 +762,19 @@ def _duckdb_run(
 
     conn = duckdb.connect()
     try:
-        suffix = str(source).lower()
-        quoted = _lit(str(source))
-        relation = (
-            f"read_parquet({quoted})"
-            if suffix.endswith(".parquet")
-            # Empty CSV fields must reach the missingness policy as "", as
-            # in the other readers; DuckDB would otherwise map them to NULL.
-            else f"read_csv({quoted}, all_varchar=true, sample_size=20480, "
-            f"nullstr={_lit(NEVER_NULL_SENTINEL)})"
-        )
+        if is_csv_path(source):
+            # Strict, declared dialect: no sniffing, malformed rows raise,
+            # and empty fields reach the missingness policy as "" (DuckDB
+            # would otherwise map them to NULL).
+            options = CsvReadOptions.from_asset(asset, path=source)
+            relation = duckdb_csv_relation(
+                source,
+                options,
+                read_header(source, options),
+                null_sentinel=NEVER_NULL_SENTINEL,
+            )
+        else:
+            relation = f"read_parquet({_lit(str(source))})"
         described = conn.execute(
             f"DESCRIBE SELECT * FROM {relation}"
         ).fetchall()
@@ -888,7 +931,9 @@ def _polars_missing(
     return pl.any_horizontal(checks)
 
 
-def _polars_scan_text_csv(pl: EngineModule, path: str) -> Any:
+def _polars_scan_text_csv(
+    pl: EngineModule, path: str, options: CsvReadOptions
+) -> Any:
     """Scan a CSV as text, keeping empty fields as ``""`` on Polars 1 and 2.
 
     Polars 1 exposes ``missing_utf8_is_empty_string``; Polars 2 replaced it
@@ -897,17 +942,28 @@ def _polars_scan_text_csv(pl: EngineModule, path: str) -> Any:
     """
     import inspect
 
+    encoding = options.engine_encoding("polars")
+    if encoding is None:
+        raise CsvDialectError(
+            f"Polars cannot decode {options.encoding}; use csv_stream"
+        )
     parameters = inspect.signature(pl.scan_csv).parameters
-    options: dict[str, Any] = {"infer_schema_length": 0}
+    kwargs: dict[str, Any] = {
+        "infer_schema_length": 0,
+        "separator": options.delimiter,
+        "quote_char": options.quote_char,
+        "encoding": encoding,
+        "has_header": True,
+    }
     if "empty_string_is_null" in parameters:
-        options["empty_string_is_null"] = False
+        kwargs["empty_string_is_null"] = False
     elif "missing_utf8_is_empty_string" in parameters:
-        options["missing_utf8_is_empty_string"] = True
+        kwargs["missing_utf8_is_empty_string"] = True
     else:
         raise RuntimeError(
             "Unsupported Polars version: cannot preserve empty CSV fields"
         )
-    return pl.scan_csv(path, **options)
+    return pl.scan_csv(path, **kwargs)
 
 
 def _polars_run(
@@ -919,13 +975,16 @@ def _polars_run(
 ) -> dict[str, tuple[int, dict[str, int]]]:
     import polars as pl
 
-    if isinstance(source, (str, Path)):
+    if is_csv_path(source):
         source_path = str(source)
-        lf = (
-            pl.scan_parquet(source_path)
-            if source_path.lower().endswith(".parquet")
-            else _polars_scan_text_csv(pl, source_path)
-        )
+        options = CsvReadOptions.from_asset(asset, path=source_path)
+        # Polars pads short rows with empty values and checks headers
+        # loosely, so the structure is verified first (one extra sequential
+        # pass, constant memory).
+        validate_structure(source_path, options)
+        lf = _polars_scan_text_csv(pl, source_path, options)
+    elif isinstance(source, (str, Path)):
+        lf = pl.scan_parquet(str(source))
     else:
         lf = source.lazy() if isinstance(source, pl.DataFrame) else source
     schema = lf.collect_schema()
@@ -1193,8 +1252,7 @@ def _csv_run(
     memory cap.
     """
     path = Path(source)
-    opener = gzip.open if str(path).lower().endswith(".gz") else open
-    delimiter = "\t" if ".tsv" in str(path).lower() else ","
+    options = CsvReadOptions.from_asset(asset, path=path)
     fields = {f["name"]: f for f in asset["fields"]}
     simple = [r for r in ready if r.cost == "aggregate"]
     key_rules = [r for r in ready if r.cost == "shuffle"]
@@ -1204,75 +1262,62 @@ def _csv_run(
     }
     key_counts: dict[str, dict[Any, int]] = {r.rule_id: {} for r in key_rules}
     n = 0
-    with opener(path, "rt", encoding="utf-8-sig", newline="") as handle:
-        reader = csv.DictReader(
-            handle, delimiter=delimiter, restkey="__qd_extra__"
-        )
-        if not reader.fieldnames or len(reader.fieldnames) != len(
-            set(reader.fieldnames)
-        ):
-            raise ValueError("Missing or duplicate CSV headers")
-        for r in ready:
-            if any(k not in reader.fieldnames for k in r.fields):
-                raise ValueError("Missing CSV field")
-        for row in reader:
-            if row.get("__qd_extra__") is not None:
-                raise ValueError("Ragged CSV is not silently accepted")
-            n += 1
-            for r in simple:
-                rule = rules[r.rule_id]
-                metric = metrics[r.metric_id]
-                misses = [_csv_missing(row[c], fields[c]) for c in r.fields]
-                if r.evaluator == "builtin.presence":
-                    state = 0 if any(misses) else 1
-                elif any(misses):
-                    state = _NULL_STATES[
-                        metric.get("null_policy", "indeterminate")
-                    ]
-                elif r.evaluator == "builtin.allowed_values":
-                    state = int(
-                        row[r.fields[0]] in rule["expectation"]["values"]
+    header = read_header(path, options)
+    for r in ready:
+        if any(k not in header for k in r.fields):
+            raise ValueError("Missing CSV field")
+    for row in iter_records(path, options):
+        n += 1
+        for r in simple:
+            rule = rules[r.rule_id]
+            metric = metrics[r.metric_id]
+            misses = [_csv_missing(row[c], fields[c]) for c in r.fields]
+            if r.evaluator == "builtin.presence":
+                state = 0 if any(misses) else 1
+            elif any(misses):
+                state = _NULL_STATES[
+                    metric.get("null_policy", "indeterminate")
+                ]
+            elif r.evaluator == "builtin.allowed_values":
+                state = int(row[r.fields[0]] in rule["expectation"]["values"])
+            elif r.evaluator == "builtin.regex_fullmatch":
+                state = int(
+                    re.fullmatch(
+                        rule["expectation"]["pattern"],
+                        row[r.fields[0]],
+                        flags=re.ASCII,
                     )
-                elif r.evaluator == "builtin.regex_fullmatch":
-                    state = int(
-                        re.fullmatch(
-                            rule["expectation"]["pattern"],
-                            row[r.fields[0]],
-                            flags=re.ASCII,
-                        )
-                        is not None
-                    )
-                else:
-                    raise ValueError("Unsupported CSV simple evaluator")
+                    is not None
+                )
+            else:
+                raise ValueError("Unsupported CSV simple evaluator")
+            buckets[r.rule_id][
+                {1: "passed", 0: "failed", -1: "unknown", -2: "excluded"}[
+                    state
+                ]
+            ] += 1
+        for r in key_rules:
+            vals = tuple(row[k] for k in r.fields)
+            if any(_csv_missing(row[k], fields[k]) for k in r.fields):
+                state = _NULL_STATES[
+                    metrics[r.metric_id].get("null_policy", "indeterminate")
+                ]
                 buckets[r.rule_id][
-                    {1: "passed", 0: "failed", -1: "unknown", -2: "excluded"}[
-                        state
-                    ]
+                    {
+                        1: "passed",
+                        0: "failed",
+                        -1: "unknown",
+                        -2: "excluded",
+                    }[state]
                 ] += 1
-            for r in key_rules:
-                vals = tuple(row[k] for k in r.fields)
-                if any(_csv_missing(row[k], fields[k]) for k in r.fields):
-                    state = _NULL_STATES[
-                        metrics[r.metric_id].get(
-                            "null_policy", "indeterminate"
-                        )
-                    ]
-                    buckets[r.rule_id][
-                        {
-                            1: "passed",
-                            0: "failed",
-                            -1: "unknown",
-                            -2: "excluded",
-                        }[state]
-                    ] += 1
-                else:
-                    tally = key_counts[r.rule_id]
-                    tally[vals] = tally.get(vals, 0) + 1
-                    if len(tally) > max_exact_keys:
-                        raise MemoryError(
-                            "Exact CSV uniqueness exceeds hard cap; switch to "
-                            "DuckDB"
-                        )
+            else:
+                tally = key_counts[r.rule_id]
+                tally[vals] = tally.get(vals, 0) + 1
+                if len(tally) > max_exact_keys:
+                    raise MemoryError(
+                        "Exact CSV uniqueness exceeds hard cap; switch to "
+                        "DuckDB"
+                    )
     for r in key_rules:
         dup = sum(c for c in key_counts[r.rule_id].values() if c > 1)
         buckets[r.rule_id]["failed"] += dup

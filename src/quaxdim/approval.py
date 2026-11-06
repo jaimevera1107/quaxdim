@@ -77,6 +77,13 @@ def build_reviewed_contract(
                 }.get(a["backend"], "unknown"),
                 "shape": "table",
                 "fields": fields,
+                # The dialect discovery used becomes part of the contract,
+                # so evaluation reads the same table (audit finding H6).
+                **(
+                    {"read_options": dict(a["read_options"])}
+                    if a.get("read_options")
+                    else {}
+                ),
             }
         )
     dimension_by_id = {}

@@ -23,7 +23,15 @@ from pathlib import Path
 from typing import Any
 
 from ._types import SparkFrame
+from .csv_dialect import (
+    CsvReadOptions,
+    duckdb_csv_relation,
+    field_size_limit,
+    is_csv_path,
+    read_header,
+)
 from .evaluator_registry import REGISTRY
+from .missingness import NEVER_NULL_SENTINEL
 
 _RE_ID = re.compile(
     r"(^id$|(^|[_\s-])(id|uuid|guid|code|codigo|cod|sku|postal)([_\s-]|$)|_id$)",
@@ -500,6 +508,7 @@ def _read_csv_stream(
     *,
     delimiter: str = ",",
     encoding: str = "utf-8-sig",
+    quote_char: str = '"',
 ) -> dict[str, Any]:
     """A single sequential pass, O(columns + sample_rows*columns + bounded
     sketches).
@@ -513,7 +522,10 @@ def _read_csv_stream(
         handle_context = path.open("r", encoding=encoding, newline="")
     with handle_context as handle:
         reader = csv.DictReader(
-            handle, delimiter=delimiter, restkey="__qd_extra_fields__"
+            handle,
+            delimiter=delimiter,
+            quotechar=quote_char,
+            restkey="__qd_extra_fields__",
         )
         fields = list(reader.fieldnames or [])
         if (
@@ -667,7 +679,11 @@ def _lit_sql(value: Any) -> str:
 
 
 def _duckdb_source(
-    path: Path, b: DiscoveryBudget, *, connection: Any = None
+    path: Path,
+    b: DiscoveryBudget,
+    *,
+    connection: Any = None,
+    csv_options: CsvReadOptions | None = None,
 ) -> dict[str, Any]:
     try:
         import duckdb
@@ -677,28 +693,37 @@ def _duckdb_source(
         ) from exc
     conn = connection or duckdb.connect()
     try:
-        return _duckdb_source_with_connection(conn, path, b)
+        return _duckdb_source_with_connection(
+            conn, path, b, csv_options=csv_options
+        )
     finally:
         if connection is None:
             conn.close()
 
 
 def _duckdb_source_with_connection(
-    conn: Any, path: Path, b: DiscoveryBudget
+    conn: Any,
+    path: Path,
+    b: DiscoveryBudget,
+    *,
+    csv_options: CsvReadOptions | None = None,
 ) -> dict[str, Any]:
     suffix = path.suffix.lower()
     if suffix not in {".csv", ".parquet"}:
         raise ValueError("DuckDB file discovery supports .csv and .parquet")
     # Literal escaping prevents path-to-SQL injection, and only trusted table
-    # functions run.
-    rel = (
-        f"read_parquet({_lit_sql(str(path))})"
-        if suffix == ".parquet"
-        else (
-            f"read_csv({_lit_sql(str(path))}, "
-            "all_varchar=true, sample_size=20480)"
+    # functions run. CSV files are read with the same strict, declared
+    # dialect as evaluation; DuckDB's sniffer is never used.
+    if suffix == ".parquet":
+        rel = f"read_parquet({_lit_sql(str(path))})"
+    else:
+        options = csv_options or CsvReadOptions.from_mapping({}, path=path)
+        rel = duckdb_csv_relation(
+            path,
+            options,
+            read_header(path, options),
+            null_sentinel=NEVER_NULL_SENTINEL,
         )
-    )
     descriptor = conn.execute("DESCRIBE SELECT * FROM " + rel).fetchall()
     cols = [
         _init_profile(
@@ -1567,6 +1592,10 @@ def discover_advanced(
     b = budget or DiscoveryBudget()
     if len(csv_delimiter) != 1:
         raise ValueError("CSV delimiter must be a single character")
+    # An explicit delimiter wins; otherwise .tsv files default to tab.
+    declared_csv: dict[str, Any] = {"encoding": csv_encoding}
+    if csv_delimiter != ",":
+        declared_csv["delimiter"] = csv_delimiter
     sources_map = (
         dict(sources) if isinstance(sources, Mapping) else {asset_id: sources}
     )
@@ -1602,20 +1631,29 @@ def discover_advanced(
                 Path(source)
             ):
                 raise ValueError("csv_stream requires a CSV path")
-            suffix = str(source).lower()
-            delim = (
-                "\t"
-                if (suffix.endswith(".tsv") or suffix.endswith(".tsv.gz"))
-                and csv_delimiter == ","
-                else csv_delimiter
+            csv_options = CsvReadOptions.from_mapping(
+                declared_csv, path=source
             )
-            raw = _read_csv_stream(
-                Path(source), b, delimiter=delim, encoding=csv_encoding
-            )
+            with field_size_limit(csv_options.max_field_chars):
+                raw = _read_csv_stream(
+                    Path(source),
+                    b,
+                    delimiter=csv_options.delimiter,
+                    encoding=csv_options.encoding,
+                    quote_char=csv_options.quote_char,
+                )
+            raw["read_options"] = csv_options.to_contract()
         elif selected_engine == "duckdb":
             if not isinstance(source, (str, Path)):
                 raise TypeError("DuckDB adapter requires a file path")
-            raw = _duckdb_source(Path(source), b)
+            duck_options = (
+                CsvReadOptions.from_mapping(declared_csv, path=source)
+                if is_csv_path(source)
+                else None
+            )
+            raw = _duckdb_source(Path(source), b, csv_options=duck_options)
+            if duck_options is not None:
+                raw["read_options"] = duck_options.to_contract()
         elif selected_engine == "polars":
             raw = _polars_source(source, b)
         elif selected_engine == "spark":
