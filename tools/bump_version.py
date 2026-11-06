@@ -29,7 +29,8 @@ def main(new_version: str) -> int:
         raise ValueError(f"No __version__ assignment found in {VERSION_FILE}")
     old_version = match.group(1)
     if old_version == new_version:
-        raise ValueError("New version must differ from current version")
+        print(f"Version already {new_version}; nothing to do.")
+        return 0
 
     VERSION_FILE.write_text(
         text.replace(old_version, new_version), encoding="utf-8"
