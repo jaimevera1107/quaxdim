@@ -172,14 +172,18 @@ def test_bounds_are_consistent_for_any_counts(passed, failed, unknown, model):
 # --- Monotonicity ------------------------------------------------------------
 
 
-@given(rows=TABLES, position=st.integers(0, 39))
+@given(data=st.data(), rows=TABLES)
 @SLOW
-def test_blanking_a_value_never_raises_the_lower_bound(
-    tmp_path, rows, position
-):
+def test_blanking_a_value_never_raises_the_lower_bound(tmp_path, data, rows):
     """Losing information cannot improve the worst case."""
-    assume(position < len(rows))
-    assume(rows[position][0] not in {"", " ", "ND"})
+    # Draw the position from the rows that can actually be blanked, instead
+    # of filtering a free integer: filtering discards most inputs and trips
+    # Hypothesis' filter-too-much health check.
+    fillable = [
+        i for i, row in enumerate(rows) if row[0] not in {"", " ", "ND"}
+    ]
+    assume(fillable)
+    position = data.draw(st.sampled_from(fillable))
     blanked = list(rows)
     blanked[position] = ("", blanked[position][1])
     before = {r.rule_id: r for r in _run(tmp_path, rows).results}
@@ -199,8 +203,9 @@ def test_blanking_a_value_never_raises_the_lower_bound(
 def test_adding_a_duplicate_key_never_raises_the_uniqueness_bound(
     tmp_path, rows
 ):
-    assume(rows[0][0] not in {"", " ", "ND"})
-    duplicated = [*rows, rows[0]]
+    real = [row for row in rows if row[0] not in {"", " ", "ND"}]
+    assume(real)
+    duplicated = [*rows, real[0]]
     before = _run(tmp_path, rows, rules=(UNIQUE,)).results[0]
     after = _run(
         tmp_path, duplicated, name="dup.csv", rules=(UNIQUE,)
