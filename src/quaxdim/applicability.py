@@ -145,7 +145,7 @@ def _date_boundary(value: str, *, end: bool) -> pd.Timestamp:
     # Dates in contracts are inclusive civil dates, not midnight at their
     # start.
     if end and len(value) == 10 and value[4] == "-" and value[7] == "-":
-        ts = ts + pd.Timedelta(days=1) - pd.Timedelta(nanoseconds=1)
+        ts = ts + pd.Timedelta(1, unit="D") - pd.Timedelta(1, unit="ns")
     return ts
 
 
