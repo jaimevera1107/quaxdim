@@ -22,6 +22,7 @@ from ._io import describe_source, write_text_atomic
 from ._lazy import LazyModule
 from ._version import __version__
 from .pandas_evaluators import EXTRA_PANDAS_EVALUATORS, evaluate_pandas_extra
+from .tabular import results_to_frame
 
 if TYPE_CHECKING:
     import numpy as np
@@ -129,8 +130,13 @@ class ContractExecutionReport:
         return data
 
     def to_frame(self) -> pd.DataFrame:
-        """Return one row per rule as a pandas DataFrame."""
-        return pd.DataFrame([r.to_dict() for r in self.results])
+        """Return the results as a DataFrame, one row per rule.
+
+        Identifiers, status, counts and rates come first and the table is
+        indexed by ``rule_id``, so a CI gate reads
+        ``report.to_frame().query("status == 'FAIL'")``.
+        """
+        return results_to_frame(self.results)
 
     @property
     def passed(self) -> bool:

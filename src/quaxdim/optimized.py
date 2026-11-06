@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ._io import describe_source, write_text_atomic
 from ._types import EngineModule, SparkColumn
@@ -45,6 +45,10 @@ from .missingness import (
     is_float_type,
     nan_is_missing,
 )
+from .tabular import results_to_frame
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 _PORTABLE = {
     "builtin.presence",
@@ -255,6 +259,14 @@ class OptimizedReport:
             "plan": self.plan.to_dict(),
             "results": [r.to_dict() for r in self.results],
         }
+
+    def to_frame(self) -> pd.DataFrame:
+        """Return the results as a DataFrame, one row per rule.
+
+        Convenience for pipelines and notebooks; requires the ``pandas``
+        extra. ``to_dict``/``to_json`` stay dependency-free.
+        """
+        return results_to_frame(self.results)
 
     def to_json(self, path: str | Path | None = None) -> str:
         """Serialise to JSON, optionally writing it to ``path``.

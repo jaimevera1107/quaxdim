@@ -76,7 +76,16 @@ jobs:
           python-version: '3.11'
       - run: python -m pip install -e ".[test,duckdb,polars,parquet]"
       - name: Native engine checks
-        run: python -m pytest -q tests_validation/test_optional_engines.py tests_validation/test_v08_native_optional.py tests_validation/test_backend_parity.py tests_public
+        run: >-
+          python -m pytest -q
+          tests_validation/test_optional_engines.py
+          tests_validation/test_v08_native_optional.py
+          tests_validation/test_backend_parity.py
+          tests_validation/test_audit_regressions.py
+          tests_validation/test_read_options_parity.py
+          tests_validation/test_discovery_heuristics.py
+          tests_validation/test_invariants_property.py
+          tests_public
 
   spark:
     name: Classic PySpark batch • Python 3.11 / Java 21
