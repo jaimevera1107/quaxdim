@@ -29,6 +29,12 @@ from .contract_validation import (
     validate_contract_structure,
 )
 from .evaluator_registry import bound_model
+from .missingness import (
+    NEVER_NULL_SENTINEL,
+    empty_string_is_missing,
+    is_float_type,
+    nan_is_missing,
+)
 
 _PORTABLE = {
     "builtin.presence",
@@ -572,17 +578,29 @@ def plan_optimized(
     )
 
 
-def _null_sql(name: str, definition: Mapping[str, Any]) -> str:
+def _null_sql(
+    name: str, definition: Mapping[str, Any], *, is_float: bool
+) -> str:
+    """Build the SQL missingness predicate of one field.
+
+    Args:
+        name: Column name.
+        definition: Contract field declaration.
+        is_float: Whether the *engine* type is floating point; NaN detection
+            follows the real type, not the declared ``physical_type``.
+    """
     c = _esc(name)
     p = definition.get("missing_policy", {})
     pieces = [f"{c} IS NULL"]
-    if any(
-        x in str(definition.get("physical_type", "")).lower()
-        for x in ("float", "double", "real")
-    ):
-        pieces.append(f"isnan({c})")
+    if is_float and nan_is_missing(p):
+        # ``isnan`` alone is not enough: DuckDB 2.0 returned false for NaN
+        # read from Parquet while ``isfinite``/``isinf`` were both false.
+        # "Neither finite nor infinite" identifies NaN on every version.
+        pieces.append(
+            f"(isnan({c}) OR (NOT isfinite({c}) AND NOT isinf({c})))"
+        )
     if _logical_type(definition["logical_type"]) == "string":
-        if p.get("empty_string"):
+        if empty_string_is_missing(p):
             pieces.append(f"{c} = ''")
         if p.get("whitespace_only"):
             pieces.append(f"TRIM({c}) = ''")
@@ -631,10 +649,17 @@ def _sql_state(
     rule: Mapping[str, Any],
     metric: Mapping[str, Any],
     fields: Mapping[str, Any],
+    float_fields: frozenset[str],
 ) -> str:
     names = rule["target"]["fields"]
     evaluator = metric["evaluator"]
-    missing = "(" + " OR ".join(_null_sql(n, fields[n]) for n in names) + ")"
+    missing = (
+        "("
+        + " OR ".join(
+            _null_sql(n, fields[n], is_float=n in float_fields) for n in names
+        )
+        + ")"
+    )
     if evaluator == "builtin.presence":
         return f"CASE WHEN {missing} THEN 0 ELSE 1 END"
     policy = _NULL_STATES[metric.get("null_policy", "indeterminate")]
@@ -646,11 +671,12 @@ def _as_aggregate_sql(
     rules: Sequence[Mapping[str, Any]],
     metrics: Mapping[str, Any],
     asset: Mapping[str, Any],
+    float_fields: frozenset[str],
 ) -> str:
     fields = {f["name"]: f for f in asset["fields"]}
     exprs = ["COUNT(*) AS _total"]
     for index, r in enumerate(rules):
-        state = _sql_state(r, metrics[r["metric_id"]], fields)
+        state = _sql_state(r, metrics[r["metric_id"]], fields, float_fields)
         for code, label in (
             (1, "pass"),
             (0, "fail"),
@@ -673,6 +699,18 @@ def _summary_counts(report_row: Mapping[str, Any], i: int) -> dict[str, int]:
     }
 
 
+def _fetch_one(cursor: Any) -> tuple[Any, ...]:
+    """Return the single row of an aggregate query, failing loudly if absent.
+
+    An aggregate without ``GROUP BY`` always yields one row; ``None`` means
+    the engine misbehaved and must not be read as zero counts.
+    """
+    row = cursor.fetchone()
+    if row is None:
+        raise RuntimeError("Aggregate query returned no row")
+    return tuple(row)
+
+
 def _duckdb_run(
     source: Any,
     asset: Mapping[str, Any],
@@ -689,14 +727,18 @@ def _duckdb_run(
         relation = (
             f"read_parquet({quoted})"
             if suffix.endswith(".parquet")
-            else f"read_csv({quoted}, all_varchar=true, sample_size=20480)"
+            # Empty CSV fields must reach the missingness policy as "", as
+            # in the other readers; DuckDB would otherwise map them to NULL.
+            else f"read_csv({quoted}, all_varchar=true, sample_size=20480, "
+            f"nullstr={_lit(NEVER_NULL_SENTINEL)})"
         )
-        actual = {
-            r[0]: _logical_type(str(r[1]))
-            for r in conn.execute(
-                f"DESCRIBE SELECT * FROM {relation}"
-            ).fetchall()
-        }
+        described = conn.execute(
+            f"DESCRIBE SELECT * FROM {relation}"
+        ).fetchall()
+        actual = {r[0]: _logical_type(str(r[1])) for r in described}
+        float_fields = frozenset(
+            str(r[0]) for r in described if is_float_type(str(r[1]))
+        )
         for r in ready:
             for name in r.fields:
                 if name not in actual:
@@ -714,14 +756,12 @@ def _duckdb_run(
         simple = [rules[r.rule_id] for r in ready if r.cost == "aggregate"]
         out = {}
         for batch in _batches(simple):
-            cur = conn.execute(
-                f"SELECT {_as_aggregate_sql(batch, metrics, asset)} FROM "
-                f"{relation}"
-            )
+            aggregates = _as_aggregate_sql(batch, metrics, asset, float_fields)
+            cur = conn.execute(f"SELECT {aggregates} FROM {relation}")
             record = dict(
                 zip(
                     [x[0] for x in cur.description],
-                    cur.fetchone(),
+                    _fetch_one(cur),
                     strict=True,
                 )
             )
@@ -734,7 +774,10 @@ def _duckdb_run(
             fields = {f["name"]: f for f in asset["fields"]}
             missing = (
                 "("
-                + " OR ".join(_null_sql(n, fields[n]) for n in p.fields)
+                + " OR ".join(
+                    _null_sql(n, fields[n], is_float=n in float_fields)
+                    for n in p.fields
+                )
                 + ")"
             )
             keys = ", ".join(_esc(n) for n in p.fields)
@@ -743,14 +786,14 @@ def _duckdb_run(
                 f"AS missing "
                 f"FROM {relation}"
             )
-            total, n_missing = conn.execute(q).fetchone()
+            total, n_missing = _fetch_one(conn.execute(q))
             dupq = (
                 f"SELECT COALESCE(SUM(CASE WHEN n>1 THEN n ELSE 0 END),0) "
                 f"FROM "
                 f"(SELECT {keys}, COUNT(*) n FROM {relation} WHERE NOT "
                 f"{missing} GROUP BY {keys})"
             )
-            duplicates = int(conn.execute(dupq).fetchone()[0])
+            duplicates = int(_fetch_one(conn.execute(dupq))[0])
             nullstate = _NULL_STATES[
                 metrics[p.metric_id].get("null_policy", "indeterminate")
             ]
@@ -776,10 +819,14 @@ def _polars_expr(
     metric: Mapping[str, Any],
     fields: Mapping[str, Any],
     pl: EngineModule,
+    float_fields: frozenset[str],
 ) -> Any:
     names = rule["target"]["fields"]
     missing = pl.any_horizontal(
-        [_polars_missing(n, fields[n], pl) for n in names]
+        [
+            _polars_missing(n, fields[n], pl, is_float=n in float_fields)
+            for n in names
+        ]
     )
     evaluator = metric["evaluator"]
     if evaluator == "builtin.presence":
@@ -821,17 +868,16 @@ def _polars_expr(
     )
 
 
-def _polars_missing(name: str, f: Mapping[str, Any], pl: EngineModule) -> Any:
+def _polars_missing(
+    name: str, f: Mapping[str, Any], pl: EngineModule, *, is_float: bool
+) -> Any:
     x = pl.col(name)
     p = f.get("missing_policy", {})
     checks = [x.is_null()]
-    if any(
-        t in str(f.get("physical_type", "")).lower()
-        for t in ("float", "double")
-    ):
+    if is_float and nan_is_missing(p):
         checks.append(x.is_nan())
     if _logical_type(f["logical_type"]) == "string":
-        if p.get("empty_string"):
+        if empty_string_is_missing(p):
             checks.append(x == "")
         if p.get("whitespace_only"):
             checks.append(x.str.strip_chars() == "")
@@ -840,6 +886,28 @@ def _polars_missing(name: str, f: Mapping[str, Any], pl: EngineModule) -> Any:
         q = x.str.strip_chars() if p.get("normalization") == "trim" else x
         checks.append(q.is_in(tokens))
     return pl.any_horizontal(checks)
+
+
+def _polars_scan_text_csv(pl: EngineModule, path: str) -> Any:
+    """Scan a CSV as text, keeping empty fields as ``""`` on Polars 1 and 2.
+
+    Polars 1 exposes ``missing_utf8_is_empty_string``; Polars 2 replaced it
+    with ``empty_string_is_null``. Either way empty fields must reach the
+    missingness policy as ``""``, as in the other readers.
+    """
+    import inspect
+
+    parameters = inspect.signature(pl.scan_csv).parameters
+    options: dict[str, Any] = {"infer_schema_length": 0}
+    if "empty_string_is_null" in parameters:
+        options["empty_string_is_null"] = False
+    elif "missing_utf8_is_empty_string" in parameters:
+        options["missing_utf8_is_empty_string"] = True
+    else:
+        raise RuntimeError(
+            "Unsupported Polars version: cannot preserve empty CSV fields"
+        )
+    return pl.scan_csv(path, **options)
 
 
 def _polars_run(
@@ -856,11 +924,14 @@ def _polars_run(
         lf = (
             pl.scan_parquet(source_path)
             if source_path.lower().endswith(".parquet")
-            else pl.scan_csv(source_path, infer_schema_length=0)
+            else _polars_scan_text_csv(pl, source_path)
         )
     else:
         lf = source.lazy() if isinstance(source, pl.DataFrame) else source
     schema = lf.collect_schema()
+    float_fields = frozenset(
+        str(n) for n, dtype in schema.items() if dtype.is_float()
+    )
     decl = {f["name"]: f for f in asset["fields"]}
     for r in ready:
         for name in r.fields:
@@ -875,7 +946,9 @@ def _polars_run(
     for batch in _batches(simple):
         agg = [pl.len().alias("_total")]
         for i, r in enumerate(batch):
-            state = _polars_expr(r, metrics[r["metric_id"]], decl, pl)
+            state = _polars_expr(
+                r, metrics[r["metric_id"]], decl, pl, float_fields
+            )
             for code, label in (
                 (1, "pass"),
                 (0, "fail"),
@@ -888,7 +961,10 @@ def _polars_run(
             out[r["id"]] = (int(row["_total"]), _summary_counts(row, i))
     for p in [r for r in ready if r.cost == "shuffle"]:
         missing = pl.any_horizontal(
-            [_polars_missing(n, decl[n], pl) for n in p.fields]
+            [
+                _polars_missing(n, decl[n], pl, is_float=n in float_fields)
+                for n in p.fields
+            ]
         )
         first = (
             lf.select(pl.len().alias("n"), missing.sum().alias("missing"))
@@ -935,18 +1011,15 @@ def _spark_col(name: str, F: EngineModule) -> SparkColumn:
 
 
 def _spark_missing(
-    name: str, f: Mapping[str, Any], F: EngineModule
+    name: str, f: Mapping[str, Any], F: EngineModule, *, is_float: bool
 ) -> SparkColumn:
     x = _spark_col(name, F)
     p = f.get("missing_policy", {})
     checks = [x.isNull()]
-    if any(
-        t in str(f.get("physical_type", "")).lower()
-        for t in ("float", "double")
-    ):
+    if is_float and nan_is_missing(p):
         checks.append(F.isnan(x))
     if _logical_type(f["logical_type"]) == "string":
-        if p.get("empty_string"):
+        if empty_string_is_missing(p):
             checks.append(x == F.lit(""))
         if p.get("whitespace_only"):
             checks.append(F.trim(x) == F.lit(""))
@@ -964,11 +1037,16 @@ def _spark_expr(
     metric: Mapping[str, Any],
     fields: Mapping[str, Any],
     F: EngineModule,
+    float_fields: frozenset[str],
 ) -> SparkColumn:
     names = rule["target"]["fields"]
-    missing = _spark_missing(names[0], fields[names[0]], F)
+    missing = _spark_missing(
+        names[0], fields[names[0]], F, is_float=names[0] in float_fields
+    )
     for name in names[1:]:
-        missing = missing | _spark_missing(name, fields[name], F)
+        missing = missing | _spark_missing(
+            name, fields[name], F, is_float=name in float_fields
+        )
     evaluator = metric["evaluator"]
     if evaluator == "builtin.presence":
         return F.when(missing, F.lit(0)).otherwise(F.lit(1))
@@ -1023,6 +1101,7 @@ def _spark_run(
         raise ValueError("Spark Connect and Streaming are not verified")
     decl = {f["name"]: f for f in asset["fields"]}
     actual = {x.name: x.dataType.simpleString() for x in source.schema.fields}
+    float_fields = frozenset(n for n, t in actual.items() if is_float_type(t))
     for r in ready:
         for name in r.fields:
             if name not in actual:
@@ -1036,7 +1115,9 @@ def _spark_run(
     for batch in _batches(simple):
         exprs = [F.count(F.lit(1)).alias("_total")]
         for i, r in enumerate(batch):
-            state = _spark_expr(r, metrics[r["metric_id"]], decl, F)
+            state = _spark_expr(
+                r, metrics[r["metric_id"]], decl, F, float_fields
+            )
             for code, label in (
                 (1, "pass"),
                 (0, "fail"),
@@ -1054,9 +1135,16 @@ def _spark_run(
         for i, r in enumerate(batch):
             out[r["id"]] = (int(row["_total"]), _summary_counts(row, i))
     for p in [r for r in ready if r.cost == "shuffle"]:
-        missing = _spark_missing(p.fields[0], decl[p.fields[0]], F)
+        missing = _spark_missing(
+            p.fields[0],
+            decl[p.fields[0]],
+            F,
+            is_float=p.fields[0] in float_fields,
+        )
         for field in p.fields[1:]:
-            missing = missing | _spark_missing(field, decl[field], F)
+            missing = missing | _spark_missing(
+                field, decl[field], F, is_float=field in float_fields
+            )
         first = source.agg(
             F.count(F.lit(1)).alias("n"),
             F.sum(F.when(missing, 1).otherwise(0)).alias("missing"),
@@ -1198,7 +1286,7 @@ def _csv_missing(x: str, field: Mapping[str, Any]) -> bool:
     if x is None:
         return True
     p = field.get("missing_policy", {})
-    if p.get("empty_string") and x == "":
+    if empty_string_is_missing(p) and x == "":
         return True
     if p.get("whitespace_only") and x.strip() == "":
         return True

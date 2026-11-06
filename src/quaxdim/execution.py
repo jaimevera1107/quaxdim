@@ -37,6 +37,7 @@ from .applicability import (
 )
 from .bounds import rate_bounds
 from .evaluator_registry import bound_model
+from .missingness import empty_string_is_missing
 
 
 class EvaluationError(ValueError):
@@ -174,9 +175,15 @@ def _is_missing(
         # Treat intrinsic null as unknown/missing for conservative quality
         # checks.
         missing = series.isna().to_numpy(dtype=bool, copy=True)
-    if policy.get("empty_string") or policy.get("whitespace_only"):
+    # The empty-string default only applies to text columns: a numeric
+    # column cannot hold "" and must not be stringified to look for it.
+    textual = pd.api.types.is_object_dtype(
+        series.dtype
+    ) or pd.api.types.is_string_dtype(series.dtype)
+    empty_is_missing = textual and empty_string_is_missing(policy)
+    if empty_is_missing or policy.get("whitespace_only"):
         s = series.astype("string")
-        if policy.get("empty_string"):
+        if empty_is_missing:
             missing |= s.eq("").fillna(False).to_numpy(dtype=bool)
         if policy.get("whitespace_only"):
             missing |= s.str.strip().eq("").fillna(False).to_numpy(dtype=bool)

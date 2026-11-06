@@ -34,6 +34,7 @@ from .execution import (
     EvaluationError,
     _failure_status,
 )
+from .missingness import empty_string_is_missing
 
 # Column comparison operators for the supported predicate operators.
 _COMPARISONS = {
@@ -177,7 +178,7 @@ def _missing_expr(
         )
     if isinstance(dtype, T.StringType):
         s = F.trim(c) if norm == "trim" else c
-        if p.get("empty_string"):
+        if empty_string_is_missing(p):
             missing = missing | (c == "")
         if p.get("whitespace_only"):
             missing = missing | (F.trim(c) == "")

@@ -25,6 +25,7 @@ else:
     pd = LazyModule("pandas", extra="pandas")
 
 from .evaluator_registry import REGISTRY
+from .missingness import EMPTY_STRING_IS_MISSING_DEFAULT
 
 _IDENTIFIER = re.compile(
     r"(^id$|(^|[_ -])(id|uuid|guid|code|codigo|cod|sku|zip|postal)"
@@ -372,7 +373,9 @@ class DiscoveryReport:
                 definition["missing_policy"] = {
                     "tokens": policy.get("tokens", []),
                     "normalization": "trim_casefold",
-                    "empty_string": policy.get("empty_string", False),
+                    "empty_string": policy.get(
+                        "empty_string", EMPTY_STRING_IS_MISSING_DEFAULT
+                    ),
                     "whitespace_only": policy.get("whitespace_only", False),
                 }
             if (
