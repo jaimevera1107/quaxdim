@@ -22,6 +22,13 @@ from pathlib import Path
 from typing import Any
 
 from ._types import EngineModule, SparkColumn
+from .bounds import rate_bounds
+from .contract_validation import (
+    identity_key_problem,
+    unknown_dimension_ids,
+    validate_contract_structure,
+)
+from .evaluator_registry import bound_model
 
 _PORTABLE = {
     "builtin.presence",
@@ -254,11 +261,18 @@ def _plan_rule(
     metric: Mapping[str, Any] | None,
     asset: Mapping[str, Any] | None,
     engine: str,
+    dimensions: Mapping[str, Any],
 ) -> tuple[str, str]:
     if not metric:
         return "INVALID_CONTRACT", "Metric not declared"
     if not asset:
         return "INVALID_CONTRACT", "Asset not declared"
+    missing_dimensions = unknown_dimension_ids(metric, dimensions)
+    if missing_dimensions:
+        return (
+            "INVALID_CONTRACT",
+            f"Metric refers to undeclared dimensions: {missing_dimensions}",
+        )
     evaluator = metric.get("evaluator")
     if evaluator not in _PORTABLE:
         return "UNSUPPORTED", "Evaluator not in portable v0.8 subset"
@@ -364,6 +378,9 @@ def _plan_rule(
     elif evaluator == "builtin.composite_uniqueness":
         if rule.get("expectation", {}).get("operator") != "composite_unique":
             return "INVALID_CONTRACT", "Uniqueness requires composite_unique"
+        key_problem = identity_key_problem(rule)
+        if key_problem:
+            return "INVALID_CONTRACT", key_problem
         if any(
             _logical_type(defs[x]["logical_type"]) == "unsupported"
             for x in fields
@@ -466,9 +483,16 @@ def plan_optimized(
 ) -> OptimizedPlan:
     """Preflight without running expensive data actions.
 
-    Nothing is approved implicitly.
+    Nothing is approved implicitly. The contract first passes the same
+    structural validation used by every other engine.
+
+    Raises:
+        ContractError: If the contract is structurally invalid (schema
+            violation or repeated identifiers).
     """
+    validate_contract_structure(contract)
     assets = {a["id"]: a for a in contract.get("assets", [])}
+    dimensions = {d["id"]: d for d in contract.get("dimensions", [])}
     metrics = {m["id"]: m for m in contract.get("metrics", [])}
     if not data:
         raise ValueError("At least one source required")
@@ -490,7 +514,9 @@ def plan_optimized(
         if chosen is None:
             status, reason = "NEEDS_DATA", "Asset source not provided"
         else:
-            status, reason = _plan_rule(rule, metric, assets.get(aid), chosen)
+            status, reason = _plan_rule(
+                rule, metric, assets.get(aid), chosen, dimensions
+            )
             if aid in unsafe_spark:
                 status, reason = (
                     "UNSUPPORTED",
@@ -1328,8 +1354,10 @@ def evaluate_optimized(
             raise AssertionError("Count invariant violated")
         eligible = passed + failed + unknown
         observed = passed + failed
-        low = passed / eligible if eligible else None
-        upper = (passed + unknown) / eligible if eligible else None
+        bounds = rate_bounds(
+            passed, failed, unknown, model=bound_model(p.evaluator)
+        )
+        low, upper = bounds.lower, bounds.upper
         outputs.append(
             OptimizedRuleResult(
                 p.rule_id,

@@ -11,11 +11,16 @@ import math
 from collections import Counter
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
-from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ._lazy import LazyModule
+from .contract_validation import (
+    ContractError,
+    identity_key_problem,
+    unknown_dimension_ids,
+    validate_contract_structure,
+)
 from .evaluator_registry import Capability, capabilities
 
 if TYPE_CHECKING:
@@ -23,9 +28,8 @@ if TYPE_CHECKING:
 else:
     pd = LazyModule("pandas", extra="pandas")
 
-
-class ContractError(ValueError):
-    """A malformed top-level contract that cannot be planned safely."""
+# ``ContractError`` now lives in ``contract_validation`` so that pandas-free
+# engines share it; it is re-exported here for backward compatibility.
 
 
 @dataclass(frozen=True)
@@ -128,11 +132,6 @@ def _status(codes: set[str]) -> str:
         if status in codes:
             return status
     return "READY"
-
-
-def _ids_unique(items: list[dict[str, Any]]) -> bool:
-    ids = [x.get("id") for x in items]
-    return len(ids) == len(set(ids))
 
 
 def _date_repr(value: Any) -> str:
@@ -380,41 +379,9 @@ class ApplicabilityPlanner:
         inputs are sufficient.
         """
         contract = dict(contract)
-        if self.validate_schema:
-            try:
-                import jsonschema
-
-                schema = json.loads(
-                    files("quaxdim")
-                    .joinpath("schemas")
-                    .joinpath("quality-contract.schema.json")
-                    .read_text(encoding="utf-8")
-                )
-                jsonschema.Draft202012Validator(
-                    schema, format_checker=jsonschema.FormatChecker()
-                ).validate(contract)
-            except ImportError as exc:
-                raise ContractError(
-                    "JSON Schema validation requires jsonschema>=4.18"
-                ) from exc
-            except (OSError, ValueError) as exc:
-                raise ContractError(
-                    f"Cannot load contract schema: {exc}"
-                ) from exc
-            except jsonschema.ValidationError as exc:
-                raise ContractError(
-                    f"Contract v0.2 schema violation at {list(exc.path)}: "
-                    f"{exc.message}"
-                ) from exc
-        for section in (
-            "assets",
-            "dimensions",
-            "metrics",
-            "rules",
-            "references",
-        ):
-            if not _ids_unique(contract.get(section, [])):
-                raise ContractError(f"Duplicate IDs in {section}")
+        validate_contract_structure(
+            contract, check_schema=self.validate_schema
+        )
         assets = {x["id"]: x for x in contract.get("assets", [])}
         metrics = {x["id"]: x for x in contract.get("metrics", [])}
         dimensions = {x["id"]: x for x in contract.get("dimensions", [])}
@@ -510,8 +477,8 @@ class ApplicabilityPlanner:
                     "UNKNOWN_REFERENCE",
                     "Rule references undeclared asset or metric",
                 )
-            if metric is not None and any(
-                d not in dimensions for d in metric.get("dimension_ids", [])
+            if metric is not None and unknown_dimension_ids(
+                metric, dimensions
             ):
                 note(
                     "INVALID_CONTRACT",
@@ -737,13 +704,12 @@ class ApplicabilityPlanner:
                         "Declare supported comparison in extensions",
                     )
             if evaluator == "builtin.composite_uniqueness":
-                keys = rule.get("expectation", {}).get("key_fields", [])
-                if keys != cols or len(set(cols)) != len(cols):
+                key_problem = identity_key_problem(rule)
+                if key_problem:
                     note(
                         "INVALID_CONTRACT",
                         "IDENTITY_KEY_MISMATCH",
-                        "Target fields and declared key fields must match "
-                        "without repeats",
+                        key_problem,
                     )
             if evaluator == "builtin.max_delay":
                 extra = rule.get("expectation", {}).get("extensions", {})

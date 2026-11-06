@@ -35,6 +35,8 @@ from .applicability import (
     _datetime_series,
     _time_mask,
 )
+from .bounds import rate_bounds
+from .evaluator_registry import bound_model
 
 
 class EvaluationError(ValueError):
@@ -871,8 +873,14 @@ class ContractExecutor:
         if not eligible:
             status = "NO_ELIGIBLE_DATA"
         else:
-            lower = passed / eligible
-            upper = (passed + unknown_in_scope) / eligible
+            bounds = rate_bounds(
+                passed,
+                failed,
+                unknown_in_scope,
+                model=bound_model(evaluator),
+            )
+            lower, upper = bounds.lower, bounds.upper
+            assert lower is not None and upper is not None
             status = _failure_status(lower, upper, threshold)
         failed_rows = np.flatnonzero(
             (array == 0).any(axis=1) if array.ndim == 2 else (array == 0)

@@ -26,7 +26,8 @@ from .applicability import (
     EvaluationPlan,
     Reason,
 )
-from .evaluator_registry import supports_backend
+from .bounds import rate_bounds
+from .evaluator_registry import bound_model, supports_backend
 from .execution import (
     ContractExecutionReport,
     ContractRuleResult,
@@ -1075,8 +1076,11 @@ class SparkContractExecutor:
         lower: float | None = None
         upper: float | None = None
         if eligible:
-            lower = passed / eligible
-            upper = (passed + unknown) / eligible
+            bounds = rate_bounds(
+                passed, failed, unknown, model=bound_model(evaluator)
+            )
+            lower, upper = bounds.lower, bounds.upper
+            assert lower is not None and upper is not None
             status = _failure_status(lower, upper, rule["threshold"])
         else:
             status = "NO_ELIGIBLE_DATA"
