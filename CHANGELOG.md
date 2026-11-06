@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fixed
+- The no-raw-values test also excludes the `sources` audit trail: like
+  `generated_at`, its `modified_at` timestamp can contain the probed string
+  in its microseconds, which made the check fail by chance on one Python
+  version (the recurrence of audit finding H8). It now scans the plan and
+  the results, the only places a value read from the data could appear, and
+  asserts separately that the audit trail carries file metadata only.
+
 ## 0.9.1 — 2026-11-06
 
 ### Audit fixes — Phase 6 (English messages and infinity policy)

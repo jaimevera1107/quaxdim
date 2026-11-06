@@ -156,10 +156,27 @@ def test_fused_rules_one_stream_and_trivalued(tmp_path):
     assert byid["duplicate"].upper_rate == pytest.approx(0.6)
     assert not rep.passed
     assert all(r.total_rows == 5 for r in rep.results)
-    # No raw samples: check the payload without the timestamp, whose
-    # microseconds can themselves contain "001" (audit finding H8).
-    payload = {k: v for k, v in rep.to_dict().items() if k != "generated_at"}
+    # No raw samples. Environment metadata is excluded first: both
+    # "generated_at" and the "sources" audit trail carry timestamps whose
+    # microseconds can contain the probed string by chance, which is the
+    # fragility audit finding H8 reported. Only the plan and the results
+    # could ever hold a value read from the data, so those are what the
+    # privacy check must scan.
+    payload = {
+        k: v
+        for k, v in rep.to_dict().items()
+        if k not in {"generated_at", "sources"}
+    }
     assert "001" not in json.dumps(payload, ensure_ascii=False)
+    # The audit trail itself never carries values either, only file metadata.
+    assert set(rep.sources["data"]) <= {
+        "kind",
+        "path",
+        "size_bytes",
+        "modified_at",
+        "exists",
+        "type",
+    }
 
 
 def test_approval_is_explicit_and_schema_valid(tmp_path):
