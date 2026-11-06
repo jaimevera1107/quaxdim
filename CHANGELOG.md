@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### Audit fixes — Phase 3 (discovery heuristics)
+
+- New `heuristics` module: one set of name semantics and thresholds for
+  both advisors (`discover` and `discover_advanced`), exposed as
+  `HeuristicThresholds` and `DiscoveryBudget.thresholds`. The divergent
+  values are unified: closed-domain share 0.25 (was 0.25 / 0.35), code
+  width up to 40 (was 30 / 40).
+- Semantic roles and start/end pairs match name **tokens** (snake_case,
+  camelCase, spaces, accents folded) instead of substrings. `country`,
+  `account_balance`, `tamaño_empresa` and `candidate_id` no longer get
+  wrong roles, and start/end fields pair only when they share the event
+  root (audit A3).
+- Key candidates use a denominator without blanks, so a few blanks no
+  longer hide a unique key (audit A1).
+- The HLL uniqueness hypothesis tolerates `z · relative_std_error` below a
+  ratio of one, following `hll_precision`, instead of a fixed
+  `[0.94, 1.06]` window (audit A2).
+- Sample-based evidence is quantified: rule-of-three upper bounds for
+  patterns and ISO dates, Good–Turing unseen-category share for domains,
+  minimum detectable duplicate share for composite keys, and repeated
+  determinants plus the g3 error for functional dependencies, which now
+  need at least three repeated determinants (audit M1–M3).
+- ISO date hypotheses need 30 matching values for `high` confidence
+  (three used to suffice).
+
 ### Audit fixes — Phase 2 (reading and engine parity)
 
 - New `asset.read_options` (schema addition, backward compatible):

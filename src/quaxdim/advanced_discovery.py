@@ -13,6 +13,7 @@ from __future__ import annotations
 import csv
 import gzip
 import json
+import math
 import random
 import re
 from collections.abc import Iterable, Mapping, Sequence
@@ -31,28 +32,21 @@ from .csv_dialect import (
     read_header,
 )
 from .evaluator_registry import REGISTRY
+from .heuristics import (
+    HeuristicThresholds,
+    dependency_evidence,
+    good_turing_unseen_mass,
+    has_role,
+    hll_suggests_unique,
+    min_detectable_duplicate_share,
+    rule_of_three_upper,
+    semantic_roles,
+    start_end_pairs,
+)
 from .missingness import NEVER_NULL_SENTINEL
 
-_RE_ID = re.compile(
-    r"(^id$|(^|[_\s-])(id|uuid|guid|code|codigo|cod|sku|postal)([_\s-]|$)|_id$)",
-    re.I,
-)
-_RE_COUNT = re.compile(
-    r"(count|cantidad|qty|vacantes|inscritos|colocaciones|poblacion|population|total|conteo)",
-    re.I,
-)
-_RE_TIME = re.compile(
-    r"(fecha|date|time|timestamp|created|updated|periodo|period|year|año|quarter|trimestre)",
-    re.I,
-)
-_RE_BEGIN = re.compile(r"(inicio|start|begin|desde|created)", re.I)
-_RE_END = re.compile(r"(fin|end|finish|hasta|updated)", re.I)
-_RE_LOCATION = re.compile(
-    r"(municipio|departamento|country|city|region|location|dpt|mpo)", re.I
-)
-_RE_CATEGORY = re.compile(
-    r"(estado|status|tipo|type|clase|category|genero|gender|sexo)", re.I
-)
+# Semantic roles and start/end vocabularies live in ``heuristics`` and are
+# matched on name tokens, not substrings (audit finding A3).
 _RE_CODE = re.compile(r"^[0-9]+$")
 _RE_ISO = re.compile(r"^\d{4}-\d{2}-\d{2}(?:[ T].*)?$")
 _RE_AMBIGUOUS = re.compile(r"^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$")
@@ -70,6 +64,9 @@ _SENTINELS = frozenset(
         "?",
     }
 )
+# Output cap for cross-asset name hints (a volume limit, not a decision
+# threshold): beyond it, hints stop being reviewable.
+_MAX_RELATIONSHIP_HINTS = 12
 _ID_VALID = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]*$")
 
 
@@ -91,6 +88,11 @@ class DiscoveryBudget:
     seed: int = 42
     allow_sample_values: bool = (
         False  # local analysis; never in default report
+    )
+    # Every threshold that decides whether a hypothesis is proposed; shared
+    # with the pandas advisor so both propose the same things.
+    thresholds: HeuristicThresholds = field(
+        default_factory=HeuristicThresholds
     )
 
     def __post_init__(self) -> None:
@@ -419,23 +421,7 @@ def _advice(
 
 
 def _roles(name: str, logical: str) -> list[str]:
-    roles = []
-    if _RE_ID.search(name):
-        roles.append("identifier")
-    if _RE_TIME.search(name):
-        roles.append("temporal")
-    if _RE_LOCATION.search(name):
-        roles.append("geographical")
-    if _RE_COUNT.search(name):
-        roles.append("count")
-    if _RE_CATEGORY.search(name):
-        roles.append("category")
-    if (
-        logical in ("date", "datetime", "timestamp")
-        and "temporal" not in roles
-    ):
-        roles.append("temporal")
-    return roles or ["unknown"]
+    return semantic_roles(name, logical)
 
 
 def _logical_from_native(type_name: str) -> str:
@@ -544,7 +530,7 @@ def _read_csv_stream(
             {
                 f: ApproxCardinality(b.hll_precision)
                 for f in selected
-                if _RE_ID.search(f)
+                if has_role(f, "identifier")
             }
             if b.mode != "schema"
             else {}
@@ -555,7 +541,7 @@ def _read_csv_stream(
         num_missing = {f: 0 for f in selected}
         num_blank = {f: 0 for f in selected}
         num_sentinel = {f: 0 for f in selected}
-        code_digits = {f: 0 for f in selected if _RE_ID.search(f)}
+        code_digits = {f: 0 for f in selected if has_role(f, "identifier")}
         code_min: dict[str, int | None] = {f: None for f in code_digits}
         code_max: dict[str, int | None] = {f: None for f in code_digits}
         malformed = 0
@@ -1006,6 +992,7 @@ def _single_asset_advice(
     aid: str, asset: Mapping[str, Any], b: DiscoveryBudget
 ) -> list[Advice]:
     recs = []
+    t = b.thresholds
     cols = asset["columns"]
     sample = asset.get("sample", [])
     rows = asset["rows"]
@@ -1157,11 +1144,14 @@ def _single_asset_advice(
                 strict = [
                     v for v in vals if v.strip().upper() not in _SENTINELS
                 ]
-                if len(strict) >= 3 and all(
+                if len(strict) >= t.min_pattern_sample and all(
                     _RE_CODE.fullmatch(v) for v in strict
                 ):
                     lens = {len(v) for v in strict}
-                    if len(lens) == 1 and 0 < next(iter(lens)) <= 40:
+                    if (
+                        len(lens) == 1
+                        and 0 < next(iter(lens)) <= t.max_code_width
+                    ):
                         w = next(iter(lens))
                         recs.append(
                             _advice(
@@ -1185,6 +1175,11 @@ def _single_asset_advice(
                                 evidence={
                                     "sample_non_missing": len(strict),
                                     "width": w,
+                                    # ~95% upper bound on the share of
+                                    # other widths in the population.
+                                    "other_width_share_upper_95": (
+                                        rule_of_three_upper(len(strict))
+                                    ),
                                 },
                                 caveats=(
                                     "Códigos históricos pueden variar de "
@@ -1192,11 +1187,12 @@ def _single_asset_advice(
                                 ),
                             )
                         )
-            if "category" in roles and len(vals) >= 12:
+            if "category" in roles and len(vals) >= t.min_category_sample:
                 unique = set(vals)
+                unseen = good_turing_unseen_mass(vals)
                 if (
                     1 < len(unique) <= b.max_domain_values
-                    and len(unique) / len(vals) <= 0.35
+                    and len(unique) / len(vals) <= t.max_category_unique_share
                 ):
                     recs.append(
                         _advice(
@@ -1220,6 +1216,9 @@ def _single_asset_advice(
                             evidence={
                                 "distinct_in_sample": len(unique),
                                 "sample_rows": len(vals),
+                                # Good-Turing estimate of the population
+                                # share in categories not seen here.
+                                "unseen_category_share": unseen,
                             },
                             prerequisites=(
                                 "Verificar catálogo oficial y su vigencia",
@@ -1241,7 +1240,7 @@ def _single_asset_advice(
                 and digits == nonempty
                 and lo == hi
                 and lo is not None
-                and 0 < lo <= 40
+                and 0 < lo <= t.max_code_width
             ):
                 recs.append(
                     _advice(
@@ -1276,16 +1275,19 @@ def _single_asset_advice(
                 )
         if "identifier" in roles:
             exact = asset.get("exact_key_uniqueness", {}).get(name)
+            # Distinct counts and sketches exclude blanks, so the
+            # denominator must too (audit finding A1); otherwise 5 blanks
+            # hide a 1000-value unique key.
             observed_non_null = (
                 None
                 if rows is None or meta["nulls"] is None
-                else rows - meta["nulls"]
+                else rows - meta["nulls"] - (meta.get("blanks") or 0)
             )
             if (
                 exact
                 and exact["exact_distinct"] is not None
                 and observed_non_null is not None
-                and observed_non_null >= 3
+                and observed_non_null >= t.min_exact_key_non_null
             ):
                 is_unique = exact["exact_distinct"] == observed_non_null
                 if is_unique:
@@ -1324,10 +1326,18 @@ def _single_asset_advice(
             elif (
                 meta["approx_distinct"] is not None
                 and observed_non_null
-                and observed_non_null >= 20
+                and observed_non_null >= t.min_hll_non_null
             ):
                 ratio = meta["approx_distinct"] / observed_non_null
-                if 0.94 <= ratio <= 1.06:
+                rse = meta.get("approx_distinct_relative_error") or (
+                    1.04 / math.sqrt(1 << b.hll_precision)
+                )
+                if hll_suggests_unique(
+                    meta["approx_distinct"],
+                    observed_non_null,
+                    rse,
+                    z=t.hll_z,
+                ):
                     recs.append(
                         _advice(
                             "hypothesis",
@@ -1345,6 +1355,7 @@ def _single_asset_advice(
                                 "approx_distinct": meta["approx_distinct"],
                                 "non_null": observed_non_null,
                                 "approx_ratio": round(ratio, 3),
+                                "approx_relative_error": rse,
                             },
                             prerequisites=(
                                 "Validación exacta sobre la clave propuesta",
@@ -1368,7 +1379,10 @@ def _single_asset_advice(
             examined += 1
             tuples = [(r.get(pair[0]), r.get(pair[1])) for r in sample]
             valid = [x for x in tuples if all(v not in (None, "") for v in x)]
-            if len(valid) < 4 or len(valid) / len(tuples) < 0.9:
+            if (
+                len(valid) < t.min_pair_sample
+                or len(valid) / len(tuples) < t.min_pair_coverage
+            ):
                 continue
             if len(set(valid)) == len(valid) and all(
                 len({x[i] for x in valid}) < len(valid) for i in (0, 1)
@@ -1390,49 +1404,51 @@ def _single_asset_advice(
                             "sample_pairs": len(valid),
                             "sample_unique": len(set(valid)),
                             "sample_based": True,
+                            # Duplicate share the reservoir would reveal
+                            # with ~95% probability; near 1.0 means the
+                            # sample is almost no evidence (audit M1).
+                            "min_detectable_duplicate_share": (
+                                min_detectable_duplicate_share(
+                                    rows, len(sample)
+                                )
+                            ),
                         },
                         prerequisites=(
                             "Validación distribuida exacta de la clave",
                         ),
                     )
                 )
-    temporal = [c for c in cols if "temporal" in c["semantic_roles"]]
-    for a in temporal:
-        for z in temporal:
-            if a is z:
-                continue
-            n1 = a["name"]
-            n2 = z["name"]
-            if (
-                _RE_BEGIN.search(n1)
-                and _RE_END.search(n2)
-                and a["logical_type"] in {"date", "datetime"}
-                and z["logical_type"] in {"date", "datetime"}
-            ):
-                recs.append(
-                    _advice(
-                        "rule",
-                        f"Revisar orden temporal {n1} <= {n2}",
-                        aid,
-                        [n1, n2],
-                        dimension="consistency",
-                        evaluator="builtin.column_compare",
-                        expectation={
-                            "operator": "expression",
-                            "extensions": {"comparison": "lte"},
-                        },
-                        confidence="low",
-                        priority="high",
-                        cost="aggregate",
-                        rationale=(
-                            "Dos campos temporalmente tipados con nombres de "
-                            "inicio y fin."
-                        ),
-                        prerequisites=(
-                            "Confirmar que pertenecen al mismo evento",
-                        ),
-                    )
-                )
+    # Start/end pairs must share the event root (audit finding A3); the
+    # previous loop paired every start field with every end field.
+    temporal_typed = {
+        c["name"]
+        for c in cols
+        if "temporal" in c["semantic_roles"]
+        and c["logical_type"] in {"date", "datetime"}
+    }
+    for n1, n2 in start_end_pairs(sorted(temporal_typed)):
+        recs.append(
+            _advice(
+                "rule",
+                f"Revisar orden temporal {n1} <= {n2}",
+                aid,
+                [n1, n2],
+                dimension="consistency",
+                evaluator="builtin.column_compare",
+                expectation={
+                    "operator": "expression",
+                    "extensions": {"comparison": "lte"},
+                },
+                confidence="low",
+                priority="high",
+                cost="aggregate",
+                rationale=(
+                    "Dos campos temporalmente tipados con nombres de "
+                    "inicio y fin."
+                ),
+                prerequisites=("Confirmar que pertenecen al mismo evento",),
+            )
+        )
     # Candidate functional dependencies are useful only with repeated
     # determinant values.
     # A unique identifier mapping to arbitrary attributes is trivial and not
@@ -1462,16 +1478,15 @@ def _single_asset_advice(
                     for x, y in pairs
                     if x not in (None, "") and y not in (None, "")
                 ]
-                if len(valid) < 8:
+                if len(valid) < t.min_fd_sample_pairs:
                     continue
-                deps: dict[str, Any] = {}
-                inconsistent = False
-                for x, y in valid:
-                    if x in deps and deps[x] != y:
-                        inconsistent = True
-                        break
-                    deps[x] = y
-                if not inconsistent and len(deps) < len(valid):
+                support = dependency_evidence(valid)
+                # One repeated determinant is not evidence (audit M2).
+                if (
+                    support.consistent
+                    and support.repeated_determinants
+                    >= t.min_fd_repeated_determinants
+                ):
                     recs.append(
                         _advice(
                             "hypothesis",
@@ -1486,8 +1501,12 @@ def _single_asset_advice(
                                 "en el reservorio."
                             ),
                             evidence={
-                                "sample_pairs": len(valid),
-                                "distinct_determinants": len(deps),
+                                "sample_pairs": support.pairs,
+                                "distinct_determinants": support.determinants,
+                                "repeated_determinants": (
+                                    support.repeated_determinants
+                                ),
+                                "g3": support.g3,
                                 "sample_based": True,
                             },
                             prerequisites=(
@@ -1559,9 +1578,9 @@ def _relationship_advice(
                             )
                         )
                         matches += 1
-                        if matches >= 12:
+                        if matches >= _MAX_RELATIONSHIP_HINTS:
                             break
-                if matches >= 12:
+                if matches >= _MAX_RELATIONSHIP_HINTS:
                     break
     return out
 

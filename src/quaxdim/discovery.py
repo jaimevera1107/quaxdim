@@ -25,20 +25,17 @@ else:
     pd = LazyModule("pandas", extra="pandas")
 
 from .evaluator_registry import REGISTRY
+from .heuristics import (
+    HeuristicThresholds,
+    good_turing_unseen_mass,
+    has_role,
+    rule_of_three_upper,
+    start_end_pairs,
+)
 from .missingness import EMPTY_STRING_IS_MISSING_DEFAULT
 
-_IDENTIFIER = re.compile(
-    r"(^id$|(^|[_ -])(id|uuid|guid|code|codigo|cod|sku|zip|postal)"
-    r"([_ -]|$)|_id$)",
-    re.I,
-)
-_COUNT = re.compile(
-    r"(^|[_ -])(count|cantidad|total|numero|número|num|qty|quantity|"
-    r"vacantes|inscritos|colocaciones|poblacion|population)([_ -]|$)",
-    re.I,
-)
-_BEGIN = re.compile(r"(start|begin|inicio|desde)", re.I)
-_END = re.compile(r"(end|finish|fin|hasta)", re.I)
+# Name semantics and thresholds are shared with the native advisor through
+# ``heuristics`` (audit findings A3 and the 0.25/0.35, 30/40 divergence).
 _DATE_AMBIGUOUS = re.compile(r"^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$")
 _SENTINELS = frozenset(
     {
@@ -427,6 +424,7 @@ def discover(
     seed: int = 42,
     max_categories: int = 12,
     spark_mode: str = "schema",
+    thresholds: HeuristicThresholds | None = None,
 ) -> DiscoveryReport:
     """Bounded evidence-based advisor. Never runs suggested rules or coerces
     data.
@@ -435,11 +433,16 @@ def discover(
     missing/keys.
     Classic Spark: schema-only metadata, no collect and no Spark action by
     default.
+
+    Args:
+        thresholds: Heuristic thresholds; defaults to the same values the
+            native advisor (:func:`discover_advanced`) uses.
     """
     if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]*", asset_id):
         raise ValueError("asset_id must match the contract ID convention")
     if sample_rows < 1 or max_categories < 2:
         raise ValueError("sample_rows>=1 and max_categories>=2 are required")
+    limits = thresholds or HeuristicThresholds()
     if spark_mode not in {"schema", "aggregate"}:
         raise ValueError("spark_mode must be schema or aggregate")
     if not isinstance(data, pd.DataFrame):
@@ -484,7 +487,7 @@ def discover(
             "sample_non_null": int(sample.notna().sum()),
         }
         rows.append(row)
-        id_like = bool(_IDENTIFIER.search(c))
+        id_like = has_role(c, "identifier")
         const = "sample_only" if len(sample) < n else "all_rows"
 
         def suggest(
@@ -625,7 +628,10 @@ def discover(
                             "explícitos.",
                         ),
                     )
-                elif iso_count == len(strs) and len(strs) >= 3:
+                elif (
+                    iso_count == len(strs)
+                    and len(strs) >= limits.min_pattern_sample
+                ):
                     suggest(
                         "semantic",
                         "Confirmar fecha ISO-8601 en " + c,
@@ -633,10 +639,19 @@ def discover(
                             "Los valores de la muestra cumplen una forma "
                             "léxica ISO."
                         ),
-                        conf="high",
+                        # Three matching values used to earn "high".
+                        conf=(
+                            "high"
+                            if len(strs)
+                            >= limits.min_iso_sample_high_confidence
+                            else "medium"
+                        ),
                         ev={
                             "sample_matches": iso_count,
                             "sample_rows": len(strs),
+                            "non_iso_share_upper_95": rule_of_three_upper(
+                                len(strs)
+                            ),
                         },
                         caveats=(
                             "La apariencia léxica no garantiza fecha "
@@ -649,10 +664,10 @@ def discover(
                         lambda v: v.isascii() and v.isdecimal()
                     )
                     if (
-                        len(strs) >= 3
+                        len(strs) >= limits.min_pattern_sample
                         and digit_only.all()
                         and widths.nunique() == 1
-                        and 1 <= int(widths.iloc[0]) <= 30
+                        and 1 <= int(widths.iloc[0]) <= limits.max_code_width
                     ):
                         width = int(widths.iloc[0])
                         suggest(
@@ -672,20 +687,24 @@ def discover(
                                 "sample_rows": len(strs),
                                 "width": width,
                                 "scope": const,
+                                "other_width_share_upper_95": (
+                                    rule_of_three_upper(len(strs))
+                                ),
                             },
                             (
                                 "Los catálogos históricos o nuevos pueden "
                                 "usar longitudes diferentes.",
                             ),
                         )
-                if not id_like and len(strs) >= 12:
+                if not id_like and len(strs) >= limits.min_category_sample:
                     try:
                         uniques = list(strs.unique())
                     except TypeError:
                         uniques = []
                     if (
                         1 < len(uniques) <= max_categories
-                        and len(uniques) / len(strs) <= 0.25
+                        and len(uniques) / len(strs)
+                        <= limits.max_category_unique_share
                     ):
                         suggest(
                             "rule",
@@ -700,13 +719,16 @@ def discover(
                                 "sample_distinct": len(uniques),
                                 "sample_rows": len(strs),
                                 "scope": const,
+                                "unseen_category_share": (
+                                    good_turing_unseen_mass(strs.tolist())
+                                ),
                             },
                             (
                                 "Una categoría no vista puede ser válida; "
                                 "revisar antes de aprobar.",
                             ),
                         )
-        if logical in {"integer", "float", "decimal"} and _COUNT.search(c):
+        if logical in {"integer", "float", "decimal"} and has_role(c, "count"):
             suggest(
                 "rule",
                 f"Confirmar valores no negativos de {c}",
@@ -750,40 +772,31 @@ def discover(
                 )
     # native datetime pairs: start/inicio to end/fin with compatible names
     date_columns = [c for c, t in logicals.items() if t == "datetime"]
-    begins = [c for c in date_columns if _BEGIN.search(c)]
-    ends = [c for c in date_columns if _END.search(c)]
-    for a in begins:
-        for b in ends:
-            if a == b:
-                continue
-            fa = re.sub(r"(?i)(start|begin|inicio|desde)", "", a).strip("_ -")
-            fb = re.sub(r"(?i)(end|finish|fin|hasta)", "", b).strip("_ -")
-            if fa != fb:
-                continue
-            ev = "builtin.column_compare"
-            proposals.append(
-                Recommendation(
-                    _key(ev, (a, b)),
-                    (a, b),
-                    "rule",
-                    f"Confirmar {a} <= {b}",
-                    "consistency",
-                    ev,
-                    "record",
-                    {
-                        "operator": "expression",
-                        "extensions": {"comparison": "lte"},
-                    },
-                    "medium",
-                    "Los nombres sugieren inicio y fin del mismo evento.",
-                    {"rows": n},
-                    (
-                        "Pueden existir registros excepcionales o cambios de "
-                        "significado.",
-                    ),
-                    tuple(sorted(REGISTRY[ev].backends)),
-                )
+    for a, b in start_end_pairs(date_columns):
+        ev = "builtin.column_compare"
+        proposals.append(
+            Recommendation(
+                _key(ev, (a, b)),
+                (a, b),
+                "rule",
+                f"Confirmar {a} <= {b}",
+                "consistency",
+                ev,
+                "record",
+                {
+                    "operator": "expression",
+                    "extensions": {"comparison": "lte"},
+                },
+                "medium",
+                "Los nombres sugieren inicio y fin del mismo evento.",
+                {"rows": n},
+                (
+                    "Pueden existir registros excepcionales o cambios de "
+                    "significado.",
+                ),
+                tuple(sorted(REGISTRY[ev].backends)),
             )
+        )
     return DiscoveryReport(
         asset_id, "pandas", n, tuple(rows), tuple(proposals), tuple(warnings)
     )
