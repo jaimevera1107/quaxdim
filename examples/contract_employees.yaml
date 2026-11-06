@@ -1,0 +1,108 @@
+contract_version: "0.2.0"
+
+assets:
+  - id: employees
+    format: csv
+    shape: table
+    read_options:            # how the CSV is read; the same for every engine
+      delimiter: ","
+      encoding: utf-8-sig
+    fields:
+      - name: employee_id
+        physical_type: utf8
+        logical_type: string
+        nullable: true
+        missing_policy:      # what counts as "absent" in this field
+          empty_string: true
+          tokens: ["N/A", "ND"]
+      - name: status
+        physical_type: utf8
+        logical_type: string
+        nullable: true
+
+dimensions:
+  - {id: completeness, name: Completeness, framework: mahanti_or_extension,
+     version: 1.0.0, levels: [value], measurement_modes: [internal]}
+  - {id: validity, name: Validity, framework: mahanti_or_extension,
+     version: 1.0.0, levels: [value], measurement_modes: [internal]}
+  - {id: uniqueness, name: Uniqueness, framework: mahanti_or_extension,
+     version: 1.0.0, levels: [entity], measurement_modes: [internal]}
+
+metrics:
+  - id: m_present
+    dimension_ids: [completeness]
+    version: 1.0.0
+    kind: conformance
+    target_levels: [value]
+    evaluator: builtin.presence
+    unit: ratio
+    direction: higher_is_better
+    denominator_unit: value
+    null_policy: include_as_failure   # a missing value is a failure
+    unknown_policy: indeterminate
+    evidence_mode: internal
+    aggregation: none
+  - id: m_status
+    dimension_ids: [validity]
+    version: 1.0.0
+    kind: conformance
+    target_levels: [value]
+    evaluator: builtin.allowed_values
+    unit: ratio
+    direction: higher_is_better
+    denominator_unit: value
+    null_policy: indeterminate        # a missing value is "unknown", not a failure
+    unknown_policy: indeterminate
+    evidence_mode: internal
+    aggregation: none
+  - id: m_unique
+    dimension_ids: [uniqueness]
+    version: 1.0.0
+    kind: conformance
+    target_levels: [entity]
+    evaluator: builtin.composite_uniqueness
+    unit: ratio
+    direction: higher_is_better
+    denominator_unit: entity
+    null_policy: indeterminate
+    unknown_policy: indeterminate
+    evidence_mode: internal
+    aggregation: none
+
+rules:
+  - id: employee_id_present
+    version: 1.0.0
+    asset_id: employees
+    metric_id: m_present
+    target: {level: value, fields: [employee_id]}
+    expectation: {operator: not_null}
+    threshold: {operator: gte, value: 1.0}
+    severity: high
+    failure_action: report
+  - id: status_in_catalogue
+    version: 1.0.0
+    asset_id: employees
+    metric_id: m_status
+    target: {level: value, fields: [status]}
+    expectation: {operator: in_set, values: [ACTIVE, INACTIVE]}
+    threshold: {operator: gte, value: 1.0}
+    severity: medium
+    failure_action: report
+  - id: employee_id_unique
+    version: 1.0.0
+    asset_id: employees
+    metric_id: m_unique
+    target: {level: entity, fields: [employee_id]}
+    expectation: {operator: composite_unique, key_fields: [employee_id]}
+    threshold: {operator: gte, value: 0.99}
+    severity: high
+    failure_action: report
+
+evaluation:
+  id: hr_monthly
+  purpose: Monthly HR extract acceptance
+  mode: evaluate
+  preserve_original: true
+  accuracy_mode: exact
+  ambiguous_parse: indeterminate
+  data_disclosure: no_raw_values

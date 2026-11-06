@@ -1,7 +1,7 @@
 include LICENSE README.md CHANGELOG.md CONTRIBUTING.md SECURITY.md
 recursive-include contracts *.json *.yaml
 recursive-include docs *.md *.csv
-recursive-include examples *.py *.yaml *.json
+recursive-include examples *.py *.yaml *.json *.csv
 recursive-include tests *.py
 recursive-include tests_validation *.py
 recursive-include tests_public *.py
