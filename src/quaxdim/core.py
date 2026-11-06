@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import numbers
 import re
+import warnings
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -17,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 from ._lazy import LazyModule
 from .catalog import CATALOG
+from .temporal import as_utc_instant, parse_declared_datetimes
 
 if TYPE_CHECKING:
     import numpy as np
@@ -359,7 +361,13 @@ class QualityReport:
 
 
 class QualitySuite:
-    """A set of declarative checks evaluated on a pandas DataFrame."""
+    """A set of declarative checks evaluated on a pandas DataFrame.
+
+    .. deprecated:: 0.8.0
+        Use reviewed contracts with :func:`quaxdim.evaluate_contract` or
+        :func:`quaxdim.evaluate_optimized`. ``QualitySuite`` will be removed
+        in a future major release.
+    """
 
     def __init__(
         self,
@@ -373,6 +381,12 @@ class QualitySuite:
             checks: Initial checks; identifiers must be unique.
             max_failure_examples: Maximum failure examples kept per check.
         """
+        warnings.warn(
+            "QualitySuite is deprecated; use reviewed contracts with "
+            "evaluate_contract() or evaluate_optimized()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.checks = list(checks or [])
         self.max_failure_examples = max_failure_examples
         self._callbacks: dict[
@@ -931,12 +945,23 @@ class QualitySuite:
             left = pd.MultiIndex.from_frame(data[list(c.columns)])
             return pd.Series(left.isin(right), index=data.index)
         if rule in {"delay_days", "freshness_days"}:
-            dt = pd.to_datetime(s, errors="coerce", utc=True)
+            # Same guarantees as the native executor: declared format and
+            # zone, no inference; unparseable values abort the check
+            # (ERROR) instead of being counted as late (audit finding C2).
+            timezone = p.get("timezone")
+            dt = parse_declared_datetimes(
+                s, date_format=p.get("date_format"), timezone=timezone
+            )
             if rule == "delay_days":
                 col = p["arrival_column"]
                 if col not in data.columns:
                     raise ValueError(f"Missing arrival column: {col}")
-                arrival = pd.to_datetime(data[col], errors="coerce", utc=True)
+                arrival = parse_declared_datetimes(
+                    data[col],
+                    date_format=p.get("arrival_date_format")
+                    or p.get("date_format"),
+                    timezone=p.get("arrival_timezone") or timezone,
+                )
                 days = (arrival - dt).dt.total_seconds() / 86400
                 return (
                     dt.notna()
@@ -944,9 +969,7 @@ class QualitySuite:
                     & days.ge(0)
                     & days.le(p["max_days"])
                 )
-            current = pd.Timestamp(now)
-            if current.tzinfo is None:
-                current = current.tz_localize("UTC")
+            current = as_utc_instant(now, timezone)
             days = (current - dt).dt.total_seconds() / 86400
             return dt.notna() & days.ge(0) & days.le(p["max_days"])
         if rule == "custom":

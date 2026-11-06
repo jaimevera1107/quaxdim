@@ -1,6 +1,12 @@
 import pandas as pd
 import pytest
+
 from quaxdim import Check, QualitySuite, list_dimensions, profile
+
+# These tests exercise the deprecated legacy API on purpose.
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:QualitySuite is deprecated:DeprecationWarning"
+)
 
 
 def outcome(frame, **kwargs):

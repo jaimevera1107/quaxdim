@@ -849,12 +849,14 @@ def _polars_source(source: Any, b: DiscoveryBudget) -> dict[str, Any]:
                         .alias(f"_dq_maxlen_{i}"),
                     ]
                 )
+    # ``engine="streaming"`` replaced ``streaming=True`` during Polars 1.x;
+    # the legacy keyword was removed in Polars 2.
+    selection: Any = lf.select(exprs)
     try:
-        result = (
-            lf.select(exprs).collect(engine="streaming").row(0, named=True)
-        )
+        frame = selection.collect(engine="streaming")
     except TypeError:
-        result = lf.select(exprs).collect(streaming=True).row(0, named=True)
+        frame = selection.collect(streaming=True)
+    result = frame.row(0, named=True)
     for i, c in enumerate(selected):
         c["nulls"] = int(result[f"_dq_null_{i}"] or 0)
         c["observations_profiled"] = int(result["_dq_rows"])

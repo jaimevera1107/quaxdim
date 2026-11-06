@@ -880,13 +880,13 @@ class ContractExecutor:
         if not eligible:
             status = "NO_ELIGIBLE_DATA"
         else:
-            bounds = rate_bounds(
+            identified = rate_bounds(
                 passed,
                 failed,
                 unknown_in_scope,
                 model=bound_model(evaluator),
             )
-            lower, upper = bounds.lower, bounds.upper
+            lower, upper = identified.lower, identified.upper
             assert lower is not None and upper is not None
             status = _failure_status(lower, upper, threshold)
         failed_rows = np.flatnonzero(

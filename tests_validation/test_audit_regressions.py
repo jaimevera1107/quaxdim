@@ -241,3 +241,68 @@ def test_fixture_writer_round_trip(tmp_path):
     path = _csv(tmp_path, [("", "A")])
     with path.open(encoding="utf-8", newline="") as handle:
         assert list(csv.reader(handle))[1] == ["", "A"]
+
+
+# --- C2: legacy QualitySuite dates follow the native guarantees -----------
+
+
+def _date_suite(**params):
+    from quaxdim import Check, QualitySuite
+
+    check = Check(
+        id="fresh",
+        dimension="currency",
+        rule="freshness_days",
+        columns=("updated",),
+        params={"max_days": 1, **params},
+    )
+    with pytest.warns(DeprecationWarning, match="QualitySuite"):
+        return QualitySuite([check])
+
+
+def test_c2_mixed_formats_error_instead_of_counting_rows_late():
+    pd = pytest.importorskip("pandas")
+    frame = pd.DataFrame(
+        {"updated": ["2026-11-04 20:00", "04/11/2026", "2026-11-04 21:00"]}
+    )
+    suite = _date_suite(date_format="%Y-%m-%d %H:%M", timezone="UTC")
+    result = suite.run(frame, as_of="2026-11-05 10:00").results[0]
+    # Before the fix the unparseable value counted as a timeliness FAIL
+    # (and format inference could turn valid ISO values into NaT).
+    assert result.status == "ERROR"
+    assert "do not match date_format" in result.message
+
+
+def test_c2_format_is_required_and_never_inferred():
+    pd = pytest.importorskip("pandas")
+    frame = pd.DataFrame({"updated": ["04/11/2026"]})
+    result = _date_suite(timezone="UTC").run(frame).results[0]
+    assert result.status == "ERROR"
+    assert "date_format" in result.message
+
+
+def test_c2_naive_times_use_the_declared_zone_not_utc():
+    pd = pytest.importorskip("pandas")
+    # 20:00 in Bogota is 01:00 UTC next day. With as_of = 2026-11-06 00:30
+    # Bogota (05:30 UTC) the row is 4.5 hours old in either reading, but a
+    # one-day window anchored on a UTC misreading would shift by 5 hours.
+    frame = pd.DataFrame({"updated": ["2026-11-05 20:00"]})
+    suite = _date_suite(date_format="%Y-%m-%d %H:%M", timezone="America/Bogota")
+    fresh = suite.run(frame, as_of="2026-11-06 00:30").results[0]
+    assert fresh.status == "PASS"
+    stale = suite.run(frame, as_of="2026-11-06 20:30").results[0]
+    assert stale.status == "FAIL"
+    with pytest.raises(Exception, match="timezone"):
+        from quaxdim.temporal import parse_declared_datetimes
+
+        parse_declared_datetimes(
+            frame["updated"], date_format="%Y-%m-%d %H:%M", timezone=None
+        )
+
+
+def test_c2_blank_dates_follow_the_null_policy():
+    pd = pytest.importorskip("pandas")
+    frame = pd.DataFrame({"updated": ["2026-11-05 20:00", " "]})
+    suite = _date_suite(date_format="%Y-%m-%d %H:%M", timezone="UTC")
+    result = suite.run(frame, as_of="2026-11-05 21:00").results[0]
+    assert (result.status, result.passed, result.excluded) == ("PASS", 1, 1)
