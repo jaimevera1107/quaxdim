@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Audit fixes — Phase 4 (API robustness and engineering)
+
+- `QualitySuite.add()` validates before mutating; a rejected check leaves
+  the suite unchanged (audit H3). `schema_columns` reports duplicate
+  column names instead of hiding them behind set comparison (audit H4).
+- The no-raw-values test excludes the report timestamp, whose
+  microseconds could contain the probed value (audit H8).
+- Reports carry `library_version` and a `sources` audit trail (file path,
+  size and modification time, or in-memory type) next to
+  `contract_sha256`; thresholds were already per rule.
+- Every report, contract and suite file is written atomically (temporary
+  file + `os.replace`): a crash mid-write leaves the previous file intact.
+- `quaxdim --version`. Known errors still exit with code 2 and a failing
+  native execution with code 1.
+- Optional dependencies get upper bounds (`pandas<3`, `duckdb<3`,
+  `polars<3`); Polars 1.x and 2.x and DuckDB 2.0 are tested.
+- Verified: the wheel and the sdist do not ship `assets/` (the restricted
+  logo stays out of PyPI).
+
 ### Audit fixes — Phase 3 (discovery heuristics)
 
 - New `heuristics` module: one set of name semantics and thresholds for

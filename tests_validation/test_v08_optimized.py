@@ -156,7 +156,10 @@ def test_fused_rules_one_stream_and_trivalued(tmp_path):
     assert byid["duplicate"].upper_rate == pytest.approx(0.6)
     assert not rep.passed
     assert all(r.total_rows == 5 for r in rep.results)
-    assert "001" not in rep.to_json()  # no raw samples
+    # No raw samples: check the payload without the timestamp, whose
+    # microseconds can themselves contain "001" (audit finding H8).
+    payload = {k: v for k, v in rep.to_dict().items() if k != "generated_at"}
+    assert "001" not in json.dumps(payload, ensure_ascii=False)
 
 
 def test_approval_is_explicit_and_schema_valid(tmp_path):

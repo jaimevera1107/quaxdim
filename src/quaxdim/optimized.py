@@ -13,13 +13,15 @@ import json
 import math
 import re
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
+from ._io import describe_source, write_text_atomic
 from ._types import EngineModule, SparkColumn
+from ._version import __version__
 from .bounds import rate_bounds
 from .contract_validation import (
     identity_key_problem,
@@ -192,7 +194,7 @@ class OptimizedPlan:
         """
         s = json.dumps(self.to_dict(), ensure_ascii=False, indent=2)
         if path:
-            Path(path).write_text(s + "\n", encoding="utf-8")
+            write_text_atomic(path, s + "\n")
         return s
 
 
@@ -237,6 +239,9 @@ class OptimizedReport:
     generated_at: str
     plan: OptimizedPlan
     results: tuple[OptimizedRuleResult, ...]
+    # Audit trail: which library produced the verdicts and on which inputs.
+    library_version: str = __version__
+    sources: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serialisable dictionary."""
@@ -244,6 +249,8 @@ class OptimizedReport:
             "contract_version": self.contract_version,
             "contract_sha256": self.contract_sha256,
             "generated_at": self.generated_at,
+            "library_version": self.library_version,
+            "sources": {k: dict(v) for k, v in self.sources.items()},
             "plan": self.plan.to_dict(),
             "results": [r.to_dict() for r in self.results],
         }
@@ -258,7 +265,7 @@ class OptimizedReport:
             self.to_dict(), ensure_ascii=False, indent=2, allow_nan=False
         )
         if path:
-            Path(path).write_text(s + "\n", encoding="utf-8")
+            write_text_atomic(path, s + "\n")
         return s
 
     @property
@@ -1200,9 +1207,9 @@ def _spark_run(
             F,
             is_float=p.fields[0] in float_fields,
         )
-        for field in p.fields[1:]:
+        for name in p.fields[1:]:
             missing = missing | _spark_missing(
-                field, decl[field], F, is_float=field in float_fields
+                name, decl[name], F, is_float=name in float_fields
             )
         first = source.agg(
             F.count(F.lit(1)).alias("n"),
@@ -1523,4 +1530,5 @@ def evaluate_optimized(
         datetime.now(timezone.utc).isoformat(),
         plan,
         tuple(outputs),
+        sources={aid: describe_source(src) for aid, src in data.items()},
     )

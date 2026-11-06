@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ._io import write_text_atomic
+from ._version import __version__
 from .advanced_discovery import DiscoveryBudget, discover_advanced
 
 if TYPE_CHECKING:
@@ -36,6 +38,9 @@ def main(argv: list[str] | None = None) -> int:
     """
     parser = argparse.ArgumentParser(
         prog="quaxdim", description="Auditable data-quality contracts"
+    )
+    parser.add_argument(
+        "--version", action="version", version=f"quaxdim {__version__}"
     )
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("dimensions", help="List the conceptual dimension catalog")
@@ -282,11 +287,11 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 import yaml
 
-                Path(args.output).write_text(
+                write_text_atomic(
+                    args.output,
                     yaml.safe_dump(
                         contract_doc, allow_unicode=True, sort_keys=False
                     ),
-                    encoding="utf-8",
                 )
                 rule_count = len(contract_doc["rules"])
                 print(

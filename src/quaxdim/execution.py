@@ -12,13 +12,15 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ._io import describe_source, write_text_atomic
 from ._lazy import LazyModule
+from ._version import __version__
 from .pandas_evaluators import EXTRA_PANDAS_EVALUATORS, evaluate_pandas_extra
 
 if TYPE_CHECKING:
@@ -96,6 +98,9 @@ class ContractExecutionReport:
     generated_at: str
     plan: EvaluationPlan
     results: tuple[ContractRuleResult, ...]
+    # Audit trail: which library produced the verdicts and on which inputs.
+    library_version: str = __version__
+    sources: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serialisable dictionary."""
@@ -103,6 +108,8 @@ class ContractExecutionReport:
             "contract_version": self.contract_version,
             "contract_sha256": self.contract_sha256,
             "generated_at": self.generated_at,
+            "library_version": self.library_version,
+            "sources": {k: dict(v) for k, v in self.sources.items()},
             "all_passed": self.passed,
             "plan": self.plan.to_dict(),
             "results": [r.to_dict() for r in self.results],
@@ -118,7 +125,7 @@ class ContractExecutionReport:
             self.to_dict(), indent=2, ensure_ascii=False, allow_nan=False
         )
         if path is not None:
-            Path(path).write_text(data + "\n", encoding="utf-8")
+            write_text_atomic(path, data + "\n")
         return data
 
     def to_frame(self) -> pd.DataFrame:
@@ -531,6 +538,7 @@ class ContractExecutor:
             datetime.now(timezone.utc).isoformat(),
             actual_plan,
             tuple(results[rid] for rid in rules),
+            sources={aid: describe_source(src) for aid, src in data.items()},
         )
 
     @staticmethod

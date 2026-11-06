@@ -23,6 +23,7 @@ from itertools import combinations
 from pathlib import Path
 from typing import Any
 
+from ._io import write_text_atomic
 from ._types import SparkFrame
 from .csv_dialect import (
     CsvReadOptions,
@@ -266,7 +267,7 @@ class AdvancedDiscoveryReport:
             default=str,
         )
         if path is not None:
-            Path(path).write_text(doc + "\n", encoding="utf-8")
+            write_text_atomic(path, doc + "\n")
         return doc
 
     def capability_coverage(self) -> dict[str, Any]:

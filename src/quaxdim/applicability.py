@@ -14,6 +14,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ._io import write_text_atomic
 from ._lazy import LazyModule
 from .contract_validation import (
     ContractError,
@@ -106,7 +107,7 @@ class EvaluationPlan:
         """
         output = json.dumps(self.to_dict(), indent=2, ensure_ascii=False)
         if path is not None:
-            Path(path).write_text(output, encoding="utf-8")
+            write_text_atomic(path, output)
         return output
 
 

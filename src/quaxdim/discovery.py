@@ -15,6 +15,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ._io import write_text_atomic
 from ._lazy import LazyModule
 
 if TYPE_CHECKING:
@@ -219,9 +220,7 @@ class DiscoveryReport:
             allow_nan=False,
         )
         if path is not None:
-            from pathlib import Path
-
-            Path(path).write_text(result + "\n", encoding="utf-8")
+            write_text_atomic(path, result + "\n")
         return result
 
     def to_frame(self) -> pd.DataFrame:
