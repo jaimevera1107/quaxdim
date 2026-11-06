@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Audit fixes — Phase 5 (documentation and validation)
+
+- New `docs/statistical_validity.md`: identification bounds vs confidence
+  intervals, per-row uniqueness, thresholds as census proportions, missing
+  values as declared policy, quantified discovery evidence, drift as a
+  heuristic, no composite index, tested engine equivalence.
+- New `benchmarks/discovery_accuracy.py` with ground truth: discovery
+  precision/recall under injected violations and HyperLogLog bias/RMSE
+  versus theory, with a smoke test in `tests_validation/`.
+- README capability table aligned with what is tested.
+
+### Deferred (not in this branch)
+
+- Splitting `advanced_discovery.py` by source (`sources/csv.py`, ...): a
+  pure code move, left for its own commit so that it does not mix with
+  semantic changes.
+- A message catalogue (i18n) replacing Spanish strings embedded in code.
+- `infinities_are_invalid`: declared in the schema, enforced by no engine;
+  needs a product decision (documented as a limitation).
+- Spark execution could not be run in the fixing environment; the Spark
+  paths changed only where shared code changed and must be run in CI.
+
 ### Audit fixes — Phase 4 (API robustness and engineering)
 
 - `QualitySuite.add()` validates before mutating; a rejected check leaves
