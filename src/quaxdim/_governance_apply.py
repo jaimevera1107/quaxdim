@@ -19,7 +19,7 @@ from __future__ import annotations
 import dataclasses
 import warnings
 from collections.abc import Sequence
-from typing import TypeVar
+from typing import Any, TypeVar, cast
 
 from .governance import Governance
 
@@ -120,7 +120,9 @@ def apply_governance(
             replacements["criticality"] = governance.criticality
 
         if replacements:
-            result = dataclasses.replace(result, **replacements)  # type: ignore[misc]
+            result = cast(
+                T, dataclasses.replace(cast(Any, result), **replacements)
+            )
 
         enriched.append((result, _status_rank(result), pos))
 
