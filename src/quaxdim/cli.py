@@ -6,7 +6,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ._io import write_text_atomic
 from ._version import __version__
@@ -30,6 +30,27 @@ def read_data(path: str) -> pd.DataFrame:
     raise ValueError("Only .csv, .parquet, .xlsx, .xls inputs are supported")
 
 
+def _add_methodology_options(parser: argparse.ArgumentParser) -> None:
+    """Options shared by the commands that execute a contract."""
+    parser.add_argument(
+        "--methodology",
+        metavar="PATH",
+        help="Also write the methodology document (Markdown) to PATH",
+    )
+    parser.add_argument(
+        "--profile",
+        default=None,
+        help="Standard profile for the methodology, e.g. dama_uk_2013",
+    )
+
+
+def _write_methodology(report: Any, args: argparse.Namespace) -> None:
+    """Write the methodology document when ``--methodology`` was given."""
+    if args.methodology:
+        document = report.to_methodology(args.profile)
+        write_text_atomic(args.methodology, document.to_markdown())
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the ``quaxdim`` command line interface.
 
@@ -44,6 +65,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("dimensions", help="List the conceptual dimension catalog")
+    sub.add_parser(
+        "measures", help="List the measure registry and standard profiles"
+    )
     p_adv = sub.add_parser(
         "advise",
         help="Out-of-core rule recommendations; no pandas materialization",
@@ -135,6 +159,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Map of reference ID to explicitly verified value bindings",
     )
     p_execute.add_argument("--output", default="execution_report.json")
+    _add_methodology_options(p_execute)
     p_native_plan = sub.add_parser(
         "native-plan",
         help="Plan native out-of-core execution, no data materialization",
@@ -162,6 +187,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_native_exec.add_argument("--output", default="native_report.json")
     p_native_exec.add_argument("--max-exact-keys", type=int, default=1000000)
+    _add_methodology_options(p_native_exec)
     p_run = sub.add_parser(
         "run", help="Evaluate YAML checks (legacy v0.1 interface)"
     )
@@ -179,6 +205,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     try:
+        if getattr(args, "profile", None):
+            # Fail before reading any data, not after a long execution.
+            from .measures import get_profile
+
+            get_profile(args.profile)
         if args.command == "advise":
             if len(args.delimiter) != 1:
                 raise ValueError("CSV delimiter must be one character")
@@ -229,6 +260,8 @@ def main(argv: list[str] | None = None) -> int:
                 contract, **params, max_exact_keys=args.max_exact_keys
             )
             native_report.to_json(args.output)
+            _write_methodology(native_report, args)
+            governed = native_report.governance.declared
             print(
                 json.dumps(
                     [
@@ -237,6 +270,15 @@ def main(argv: list[str] | None = None) -> int:
                             "status": r.status,
                             "measured_rate": r.measured_rate,
                             "coverage": r.assessment_coverage,
+                            **(
+                                {
+                                    "criticality": r.criticality,
+                                    "steward": r.steward,
+                                    "on_failure": r.on_failure,
+                                }
+                                if governed
+                                else {}
+                            ),
                         }
                         for r in native_report.results
                     ],
@@ -249,6 +291,20 @@ def main(argv: list[str] | None = None) -> int:
                 f"report={args.output}"
             )
             return 0 if native_report.passed else 1
+        if args.command == "measures":
+            from .measures import PROFILES, list_measures
+
+            print(
+                json.dumps(
+                    {
+                        "measures": list_measures(),
+                        "profiles": [p.to_dict() for p in PROFILES.values()],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            return 0
         if args.command == "dimensions":
             from .catalog import list_dimensions
 
@@ -380,17 +436,14 @@ def main(argv: list[str] | None = None) -> int:
                 contract, data={args.asset: frame}, evidence=ev
             )
             report.to_json(args.output)
-            print(
-                report.to_frame()[
-                    [
-                        "rule_id",
-                        "status",
-                        "measured_rate",
-                        "assessment_coverage",
-                        "reasons",
-                    ]
-                ].to_string(index=False)
-            )
+            _write_methodology(report, args)
+            columns = ["rule_id", "status"]
+            if report.governance.declared:
+                columns += ["criticality", "steward", "on_failure"]
+            columns += ["measured_rate", "assessment_coverage", "reasons"]
+            # to_frame() is indexed by rule_id; bring it back as a column.
+            table = report.to_frame().reset_index()
+            print(table[columns].to_string(index=False))
             print(
                 f"Overall: {'PASS' if report.passed else 'NOT PASS'}; "
                 f"report={args.output}"

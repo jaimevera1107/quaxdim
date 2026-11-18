@@ -2,29 +2,53 @@
 
 ## Unreleased
 
-## 0.10.0 — 2026-11-17
+## 0.10.0 — 2026-11-18
+
+QuaxDim now models the governance decision around a quality control, not
+only its measurement. Everything below is optional: a contract without a
+`governance` block gives the same results, in the same order, as 0.9.1; its
+JSON report only gains an empty `"governance": {}`.
 
 ### Added
-- **Governance G1** — optional `governance` block in quality contracts.
-  Implements the DQ01/DQ04 accountability layer from Karkošková (2023):
-  - `data_owner`, `approved_by`, `approved_at`, `review_cycle`, `criticality`
-    at the contract level.
-  - Per-rule `steward` and `on_failure` metadata.
-  - Both execution reports (`OptimizedReport`, `ContractExecutionReport`) now
-    carry a `governance` field and propagate `steward`, `on_failure`,
-    `criticality` to every result.
-  - Results are sorted by urgency: `ERROR` → `INDETERMINATE` → `FAIL` →
-    `UNSUPPORTED` → `PASS`, then by criticality, then by original order.
-  - `StaleContractWarning` when `approved_at` + `review_cycle` is in the past.
-  - `to_dict()` / `to_json()` include the full governance block.
-  - The governance block is **entirely optional**: a contract without it
-    produces a report identical to 0.9.1.
-- `docs/governance.md` — maps QuaxDim to the six DQ processes of Karkošková
-  (2023) and documents every governance field.
+- **Governance block** in contracts (Karkošková 2023, processes DQ01 and
+  DQ04): `data_owner`, `approved_by`, `approved_at`, `review_cycle`,
+  `criticality`, and per rule `steward`, `on_failure` and an overriding
+  `criticality`. Both engines attach `criticality`, `steward` and
+  `on_failure` to every result; `to_frame()` shows them after `status` and
+  the CLI prints them. `report.governance` holds the block.
+- Results of a governed contract are ordered by attention: problems with
+  critical data first (a regulatory rule that could not be measured comes
+  before an analytical failure), then errors, unknown outcomes and failures,
+  then passing rules in contract order.
+- `StaleContractWarning` when the review cycle has elapsed since
+  `approved_at`. A warning, never a failure.
+- Every planner rejects, before reading data, governance that refers to
+  rules not in the contract or carries an impossible `approved_at`.
+  `GovernanceError` is a `ContractError`.
+- **Measure registry** (`quaxdim.measures`, `quaxdim measures`): each
+  measure with its dimension, inputs, evaluators and a G/K/N category
+  (computable from the data / needs supplied knowledge / needs ground
+  truth). A test fails if an evaluator is ever registered without a measure.
+- **`dama_uk_2013` profile**: the six DAMA UK primary dimensions mapped to
+  the registry. Names are cited, definitions are not reproduced.
+- **Methodology document**: `report.to_methodology(profile=None)` with
+  `to_markdown()` and `to_dict()`, and `--methodology PATH --profile ID` on
+  `execute` and `native-execute`. It lists the dimensions evaluated with
+  their measures, categories and adaptations, and the dimensions not
+  evaluated with a typed reason (`missing_rule`, `missing_reference`,
+  `missing_timestamp`, `missing_label`, `missing_target_population`,
+  `system_dependent`). No score is computed and the wording never claims
+  conformance; a test enforces it.
+- Optional `standard_refs` on rules: citable references (standard, clause,
+  measure ID, interpretation, verification level, note) that appear in the
+  methodology document. Metadata only.
+- `docs/governance.md`, a governance section in the README and in
+  `docs/README.es.md`.
 
 ### Fixed
-- `tests/test_execution.py` — result lookup by `rule_id` instead of tuple
-  index (sort order is now defined by governance, not insertion order).
+- `quaxdim execute` failed with `"['rule_id'] not in index"` since 0.9.1,
+  because `to_frame()` is indexed by `rule_id`.
+- CI lints with ruff 0.17.5, the version pinned for development.
 
 ## 0.9.1 — 2026-11-06
 

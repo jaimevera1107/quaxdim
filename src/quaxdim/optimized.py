@@ -40,6 +40,11 @@ from .csv_dialect import (
 )
 from .evaluator_registry import bound_model
 from .governance import Governance
+from .methodology import (
+    ContractContext,
+    MethodologyReport,
+    build_methodology,
+)
 from .missingness import (
     NEVER_NULL_SENTINEL,
     empty_string_is_missing,
@@ -254,6 +259,10 @@ class OptimizedReport:
     library_version: str = __version__
     sources: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     governance: Governance = field(default_factory=Governance)
+    # Not serialised: lets to_methodology() work without the contract.
+    context: ContractContext = field(
+        default_factory=ContractContext, repr=False, compare=False
+    )
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serialisable dictionary."""
@@ -275,6 +284,17 @@ class OptimizedReport:
         extra. ``to_dict``/``to_json`` stay dependency-free.
         """
         return results_to_frame(self.results)
+
+    def to_methodology(
+        self, profile: str | None = None
+    ) -> MethodologyReport:
+        """Return the methodology document of this report.
+
+        Args:
+            profile: Standard profile to assess against, e.g.
+                ``"dama_uk_2013"``; by default, the contract's dimensions.
+        """
+        return build_methodology(self, profile)
 
     def to_json(self, path: str | Path | None = None) -> str:
         """Serialise to JSON, optionally writing it to ``path``.
@@ -1591,4 +1611,5 @@ def evaluate_optimized(
         ordered_outputs,
         sources={aid: describe_source(src) for aid, src in data.items()},
         governance=governance,
+        context=ContractContext.from_contract(contract),
     )

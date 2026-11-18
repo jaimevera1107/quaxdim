@@ -1,17 +1,18 @@
-"""Apply governance metadata to evaluation results.
+"""Attach governance metadata to results and order them by attention.
 
-This module is an internal implementation detail.  Public callers should
-access it through :func:`quaxdim.evaluate_optimized` or
-:func:`quaxdim.evaluate_contract`.
+Internal module: the engines call it, users see its effect on the report.
 
-Responsibilities
-----------------
-1. Enrich each result with its per-rule governance fields (steward,
-   on_failure) and the contract-level criticality.
-2. Sort results so that the most actionable items appear first:
-   - Within each status tier, higher-criticality items precede lower ones.
-   - Original evaluation order is the tiebreaker.
-3. Emit :class:`StaleContractWarning` when the review cycle has elapsed.
+Ordering rule, applied only when the contract declares governance (without
+the block the report keeps the contract's order, exactly as before):
+
+1. Results that need attention come before ``PASS`` and ``NOT_APPLICABLE``.
+2. Among those, more critical data first: a ``regulatory_reporting`` rule
+   that could not be measured outranks an ``analytical`` failure, because
+   in regulatory reporting "could not measure it" is worse news than
+   "it failed" on secondary data.
+3. Within the same criticality: errors, then unknown outcomes
+   (``INDETERMINATE`` and other unmeasured states), then ``FAIL``.
+4. Ties, and all settled results, keep the contract's order.
 """
 
 from __future__ import annotations
@@ -27,126 +28,95 @@ __all__ = ["StaleContractWarning", "apply_governance", "warn_if_overdue"]
 
 T = TypeVar("T")
 
-# ---------------------------------------------------------------------------
-# Warning type
-# ---------------------------------------------------------------------------
+_SETTLED: frozenset[str] = frozenset({"PASS", "NOT_APPLICABLE"})
+
+# Lower is more urgent. Statuses not listed are treated as "not measured".
+_STATUS_RANK: dict[str, int] = {
+    "ERROR": 0,
+    "INVALID_CONTRACT": 0,
+    "INDETERMINATE": 1,
+    "NEEDS_EVIDENCE": 1,
+    "UNSUPPORTED": 1,
+    "NO_ELIGIBLE_DATA": 1,
+    "FAIL": 2,
+}
+_UNMEASURED_RANK = 1
 
 
 class StaleContractWarning(UserWarning):
-    """Emitted when a contract's review cycle has elapsed since approval.
+    """The contract's review cycle has elapsed since it was approved.
 
-    The warning carries the number of days since approval and the review
-    cycle name so that callers can surface it in their own UIs.
+    A warning, never a failure: the verdicts are still valid measurements,
+    but the rules they measure may no longer reflect what was agreed. Turn
+    it into an error where a stale contract must stop a pipeline::
 
-    Example::
-
-        import warnings
         warnings.filterwarnings("error", category=StaleContractWarning)
     """
 
 
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-# Lower index = show first (most urgent).
-_ATTENTION_ORDER: dict[str, int] = {
-    "ERROR": 0,
-    "INVALID_CONTRACT": 0,
-    "INDETERMINATE": 1,
-    "FAIL": 2,
-    "UNSUPPORTED": 3,
-    "NO_ELIGIBLE_DATA": 4,
-    "PASS": 5,
-}
-
-_DEFAULT_ATTENTION = max(_ATTENTION_ORDER.values()) + 1
-
-
-def _status_rank(result: object) -> int:
-    status = getattr(result, "status", None)
-    if status is None:
-        return _DEFAULT_ATTENTION
-    return _ATTENTION_ORDER.get(str(status), _DEFAULT_ATTENTION)
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
+def _attention_key(
+    result: Any, position: int, governance: Governance
+) -> tuple[int, int, int, int]:
+    status = str(result.status)
+    if status in _SETTLED:
+        # Nothing to act on: keep the contract's order.
+        return (1, 0, 0, position)
+    return (
+        0,
+        governance.criticality_rank_for(str(result.rule_id)),
+        _STATUS_RANK.get(status, _UNMEASURED_RANK),
+        position,
+    )
 
 
 def apply_governance(
     results: Sequence[T], governance: Governance
 ) -> tuple[T, ...]:
-    """Return *results* enriched with governance metadata and sorted.
+    """Return the results with their governance metadata, in attention order.
 
-    For each result the function calls :func:`dataclasses.replace` to attach:
-
-    - ``steward`` — from the matching ``governance.rules[rule_id].steward``,
-      falling back to ``None`` when the rule has no entry.
-    - ``on_failure`` — from ``governance.rules[rule_id].on_failure``,
-      falling back to ``None``.
-    - ``criticality`` — the contract-level ``governance.criticality``
-      (same value for every result in this report).
-
-    If a result dataclass does not have one of those fields the enrichment
-    is skipped silently, so pre-governance results are accepted without error.
-
-    Sorting key: ``(status_rank, criticality_rank, original_position)``.
+    Each result gains ``steward`` and ``on_failure`` from
+    ``governance.rules`` and ``criticality`` from the rule (falling back to
+    the contract). Results are dataclasses and are copied, never mutated.
 
     Args:
-        results: Sequence of result objects (must be dataclasses supporting
-            :func:`dataclasses.replace`).
-        governance: Parsed governance for the contract being evaluated.
+        results: Rule results in contract order.
+        governance: The contract's parsed governance.
 
     Returns:
-        A tuple of enriched, sorted results.
+        The enriched results. When nothing is declared they are returned
+        unchanged and in the same order.
     """
-    enriched: list[tuple[T, int, int]] = []  # (result, status_rank, pos)
-
-    for pos, result in enumerate(results):
-        rule_id: str | None = getattr(result, "rule_id", None)
-        rg = governance.for_rule(rule_id) if rule_id else None
-
-        replacements: dict[str, object] = {}
-
-        result_fields = {f.name for f in dataclasses.fields(result)}  # type: ignore[arg-type]
-
-        if "steward" in result_fields:
-            replacements["steward"] = rg.steward if rg else None
-        if "on_failure" in result_fields:
-            replacements["on_failure"] = rg.on_failure if rg else None
-        if "criticality" in result_fields:
-            replacements["criticality"] = governance.criticality
-
-        if replacements:
-            result = cast(
-                T, dataclasses.replace(cast(Any, result), **replacements)
-            )
-
-        enriched.append((result, _status_rank(result), pos))
-
-    enriched.sort(key=lambda t: (t[1], governance.criticality_rank, t[2]))
-    return tuple(item[0] for item in enriched)
+    if not governance.declared:
+        return tuple(results)
+    enriched: list[T] = []
+    for result in results:
+        rule_id = str(cast(Any, result).rule_id)
+        meta = governance.for_rule(rule_id)
+        values = {
+            "steward": meta.steward,
+            "on_failure": meta.on_failure,
+            "criticality": governance.criticality_for(rule_id),
+        }
+        names = {f.name for f in dataclasses.fields(cast(Any, result))}
+        changes = {k: v for k, v in values.items() if k in names}
+        enriched.append(
+            cast(T, dataclasses.replace(cast(Any, result), **changes))
+        )
+    order = sorted(
+        range(len(enriched)),
+        key=lambda i: _attention_key(enriched[i], i, governance),
+    )
+    return tuple(enriched[i] for i in order)
 
 
 def warn_if_overdue(governance: Governance) -> None:
-    """Emit :class:`StaleContractWarning` when the review cycle has elapsed.
-
-    Does nothing when governance is not declared or when ``approved_at`` /
-    ``review_cycle`` are absent.
-
-    Args:
-        governance: Parsed governance for the contract being evaluated.
-    """
-    if not governance.declared:
-        return
+    """Emit :class:`StaleContractWarning` if the review cycle has elapsed."""
     if not governance.is_overdue():
         return
-    elapsed = governance.days_since_approval()
-    msg = (
-        f"This contract was approved {elapsed} day(s) ago but its "
-        f"review_cycle is '{governance.review_cycle}'. "
-        "Consider re-approving the contract to reflect current data."
+    warnings.warn(
+        f"The contract was approved {governance.days_since_approval()} days "
+        f"ago and its review cycle is '{governance.review_cycle}'; review "
+        "and re-approve it.",
+        StaleContractWarning,
+        stacklevel=3,
     )
-    warnings.warn(msg, StaleContractWarning, stacklevel=4)

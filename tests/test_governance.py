@@ -1,174 +1,174 @@
-"""Tests for the governance module and its integration with both engines.
-
-Coverage
---------
-- Governance.from_contract: happy path, empty block, validation errors.
-- Governance helpers: criticality_rank, is_overdue, days_since_approval.
-- apply_governance: enrichment fields, sort order.
-- warn_if_overdue: warning emitted / suppressed.
-- Integration: evaluate_optimized and evaluate_contract propagate governance.
-"""
+"""Governance block: parsing, validation, enrichment, ordering and the CLI."""
 
 from __future__ import annotations
 
+import copy
 import datetime
+import json
 import warnings
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 import pytest
+import yaml
 
-from quaxdim._governance_apply import StaleContractWarning, apply_governance, warn_if_overdue
-from quaxdim.governance import (
-    CRITICALITY_ORDER,
+from quaxdim import (
+    ContractError,
     Governance,
     GovernanceError,
-    RuleGovernance,
+    StaleContractWarning,
+    evaluate_contract,
+    evaluate_optimized,
+    plan_optimized,
 )
+from quaxdim._governance_apply import apply_governance, warn_if_overdue
+from quaxdim.cli import main
+
+ROOT = Path(__file__).resolve().parents[1]
+CSV = str(ROOT / "examples" / "employees.csv")
+CONTRACT = ROOT / "examples" / "contract_employees.yaml"
+RULES = ("employee_id_present", "status_in_catalogue", "employee_id_unique")
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+def contract(governance: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The example contract, optionally with a governance block."""
+    loaded = yaml.safe_load(CONTRACT.read_text(encoding="utf-8"))
+    if governance is not None:
+        loaded["governance"] = copy.deepcopy(governance)
+    return loaded
 
 
-def _make_contract_dict(**governance_kwargs):
-    """Minimal contract dict with an optional governance block."""
-    d = {"contract_version": "0.1.0"}
-    if governance_kwargs:
-        d["governance"] = governance_kwargs
-    return d
+def recent() -> str:
+    return (datetime.date.today() - datetime.timedelta(days=3)).isoformat()
 
 
-# ---------------------------------------------------------------------------
-# Governance.from_contract
-# ---------------------------------------------------------------------------
+FULL = {
+    "data_owner": "Dirección de Empleo y Trabajo",
+    "approved_by": "jvera",
+    "approved_at": "2026-11-06",
+    "review_cycle": "quarterly",
+    "criticality": "analytical",
+    "rules": {
+        "employee_id_unique": {
+            "steward": "equipo-SIGA",
+            "on_failure": "block_publication",
+            "criticality": "regulatory_reporting",
+        }
+    },
+}
 
 
-class TestFromContract:
-    def test_empty_contract_gives_undeclared_governance(self):
-        g = Governance.from_contract({})
-        assert not g.declared
+# --------------------------------------------------------------------------
+# Parsing and validation
+# --------------------------------------------------------------------------
 
-    def test_full_governance_block(self):
-        g = Governance.from_contract(
-            _make_contract_dict(
-                data_owner="Finance",
-                approved_by="jvera",
-                approved_at="2026-01-15",
-                review_cycle="quarterly",
-                criticality="regulatory_reporting",
-                rules={
-                    "rule_a": {"steward": "team-A", "on_failure": "block_publication"}
-                },
-            )
+
+def test_absent_block_is_undeclared() -> None:
+    assert not Governance.from_contract(contract()).declared
+
+
+def test_full_block_is_parsed() -> None:
+    g = Governance.from_contract(contract(FULL))
+    assert g.declared and g.data_owner == "Dirección de Empleo y Trabajo"
+    assert g.for_rule("employee_id_unique").steward == "equipo-SIGA"
+    assert g.criticality_for("employee_id_unique") == "regulatory_reporting"
+    # A rule without its own criticality inherits the contract's.
+    assert g.criticality_for("employee_id_present") == "analytical"
+
+
+def test_round_trip_through_to_dict() -> None:
+    g = Governance.from_contract(contract(FULL))
+    assert g.to_dict() == FULL
+
+
+@pytest.mark.parametrize(
+    ("block", "match"),
+    [
+        ({"criticality": "cosmic"}, "criticality"),
+        ({"review_cycle": "weekly"}, "review_cycle"),
+        ({"approved_at": "2026-02-30"}, "approved_at"),
+        ({"rules": {"employee_id_present": {"on_failure": "x"}}}, "on_failure"),
+        (
+            {"rules": {"employee_id_present": {"criticality": "x"}}},
+            "criticality",
+        ),
+    ],
+)
+def test_invalid_values_raise(block: dict[str, Any], match: str) -> None:
+    with pytest.raises(GovernanceError, match=match):
+        Governance.from_contract(contract(block))
+
+
+def test_orphan_rule_id_is_a_contract_error() -> None:
+    block = {"rules": {"no_such_rule": {"steward": "team"}}}
+    with pytest.raises(ContractError, match="no_such_rule"):
+        Governance.from_contract(contract(block))
+
+
+def test_every_planner_rejects_orphans_before_running() -> None:
+    bad = contract({"rules": {"no_such_rule": {"steward": "team"}}})
+    with pytest.raises(GovernanceError, match="no_such_rule"):
+        plan_optimized(bad, data={"employees": CSV})
+    pd = pytest.importorskip("pandas")
+    frame = pd.read_csv(CSV, dtype="string", keep_default_na=False)
+    with pytest.raises(GovernanceError, match="no_such_rule"):
+        evaluate_contract(bad, data={"employees": frame})
+
+
+def test_schema_rejects_unknown_governance_keys() -> None:
+    with pytest.raises(ContractError):
+        plan_optimized(
+            contract({"owner": "typo"}), data={"employees": CSV}
         )
-        assert g.declared
-        assert g.data_owner == "Finance"
-        assert g.approved_by == "jvera"
-        assert g.approved_at == "2026-01-15"
-        assert g.review_cycle == "quarterly"
-        assert g.criticality == "regulatory_reporting"
-        assert g.for_rule("rule_a").steward == "team-A"
-        assert g.for_rule("rule_a").on_failure == "block_publication"
-
-    def test_missing_rule_returns_empty_rule_governance(self):
-        g = Governance.from_contract(_make_contract_dict(criticality="analytical"))
-        rg = g.for_rule("nonexistent_rule")
-        assert rg.steward is None
-        assert rg.on_failure is None
-
-    def test_invalid_criticality_raises(self):
-        with pytest.raises(GovernanceError, match="criticality"):
-            Governance.from_contract(_make_contract_dict(criticality="cosmic"))
-
-    def test_invalid_review_cycle_raises(self):
-        with pytest.raises(GovernanceError, match="review_cycle"):
-            Governance.from_contract(_make_contract_dict(review_cycle="weekly"))
-
-    def test_invalid_on_failure_raises(self):
-        with pytest.raises(GovernanceError, match="on_failure"):
-            Governance.from_contract(
-                _make_contract_dict(
-                    rules={"r": {"on_failure": "ignore_it"}}
-                )
-            )
-
-    def test_invalid_approved_at_raises(self):
-        with pytest.raises(GovernanceError, match="approved_at"):
-            Governance.from_contract(_make_contract_dict(approved_at="not-a-date"))
-
-    def test_governance_key_absent_gives_undeclared(self):
-        g = Governance.from_contract({"contract_version": "1.0", "rules": []})
-        assert not g.declared
 
 
-# ---------------------------------------------------------------------------
-# Governance helpers
-# ---------------------------------------------------------------------------
+def test_governance_error_is_a_contract_error() -> None:
+    assert issubclass(GovernanceError, ContractError)
 
 
-class TestGovernanceHelpers:
-    def test_criticality_rank_order(self):
-        ranks = [
-            Governance(criticality=c).criticality_rank
-            for c in CRITICALITY_ORDER
-        ]
-        assert ranks == sorted(ranks)
+# --------------------------------------------------------------------------
+# Review cycle
+# --------------------------------------------------------------------------
 
-    def test_criticality_rank_unknown_sorts_last(self):
-        g = Governance(criticality=None)
-        assert g.criticality_rank > Governance(criticality="exploratory").criticality_rank
 
-    def test_days_since_approval(self):
-        g = Governance(approved_at="2026-01-01")
-        today = datetime.date(2026, 2, 1)
-        assert g.days_since_approval(today) == 31
+def test_overdue_after_the_cycle() -> None:
+    g = Governance(approved_at="2026-01-01", review_cycle="quarterly")
+    assert g.days_since_approval(datetime.date(2026, 2, 1)) == 31
+    assert not g.is_overdue(datetime.date(2026, 4, 1))
+    assert g.is_overdue(datetime.date(2026, 4, 30))
 
-    def test_days_since_approval_none_when_absent(self):
-        g = Governance()
-        assert g.days_since_approval() is None
 
-    def test_is_overdue_true(self):
-        g = Governance(approved_at="2025-01-01", review_cycle="quarterly")
-        assert g.is_overdue(today=datetime.date(2026, 1, 1))
+def test_never_overdue_without_both_fields() -> None:
+    assert not Governance(approved_at="2020-01-01").is_overdue()
+    assert not Governance(review_cycle="monthly").is_overdue()
 
-    def test_is_overdue_false_recent(self):
-        today = datetime.date.today()
-        g = Governance(
-            approved_at=(today - datetime.timedelta(days=10)).isoformat(),
-            review_cycle="quarterly",
+
+def test_warning_only_when_overdue() -> None:
+    with pytest.warns(StaleContractWarning, match="quarterly"):
+        warn_if_overdue(
+            Governance(approved_at="2020-01-01", review_cycle="quarterly")
         )
-        assert not g.is_overdue(today=today)
-
-    def test_is_overdue_false_when_no_cycle(self):
-        g = Governance(approved_at="2020-01-01")
-        assert not g.is_overdue()
-
-    def test_to_dict_omits_none_fields(self):
-        g = Governance(data_owner="Alice")
-        d = g.to_dict()
-        assert "data_owner" in d
-        assert "approved_by" not in d
-        assert "rules" not in d
-
-    def test_to_dict_round_trip(self):
-        g = Governance(
-            data_owner="Alice",
-            criticality="operational",
-            rules={"r1": RuleGovernance(steward="team", on_failure="notify")},
-        )
-        d = g.to_dict()
-        assert d["criticality"] == "operational"
-        assert d["rules"]["r1"]["steward"] == "team"
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        warn_if_overdue(Governance(approved_at=recent(), review_cycle="annual"))
+        warn_if_overdue(Governance())
 
 
-# ---------------------------------------------------------------------------
-# apply_governance
-# ---------------------------------------------------------------------------
+def test_stale_contract_warns_but_still_evaluates() -> None:
+    stale = contract({"approved_at": "2020-01-01", "review_cycle": "annual"})
+    with pytest.warns(StaleContractWarning):
+        report = evaluate_optimized(stale, data={"employees": CSV})
+    assert len(report.results) == len(RULES)
+
+
+# --------------------------------------------------------------------------
+# Enrichment and ordering
+# --------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
-class _FakeResult:
+class Fake:
     rule_id: str
     status: str
     steward: str | None = None
@@ -176,152 +176,151 @@ class _FakeResult:
     criticality: str | None = None
 
 
-class TestApplyGovernance:
-    def _governance(self, **kwargs) -> Governance:
-        return Governance.from_contract(_make_contract_dict(**kwargs))
-
-    def test_enriches_steward_and_on_failure(self):
-        g = self._governance(
-            rules={"r1": {"steward": "team-A", "on_failure": "notify"}}
-        )
-        result = _FakeResult(rule_id="r1", status="PASS")
-        (enriched,) = apply_governance([result], g)
-        assert enriched.steward == "team-A"
-        assert enriched.on_failure == "notify"
-
-    def test_enriches_criticality(self):
-        g = self._governance(criticality="regulatory_reporting")
-        result = _FakeResult(rule_id="r1", status="PASS")
-        (enriched,) = apply_governance([result], g)
-        assert enriched.criticality == "regulatory_reporting"
-
-    def test_no_governance_no_enrichment(self):
-        g = Governance()
-        result = _FakeResult(rule_id="r1", status="PASS")
-        (enriched,) = apply_governance([result], g)
-        # Fields remain None
-        assert enriched.steward is None
-        assert enriched.on_failure is None
-        assert enriched.criticality is None
-
-    def test_sort_indeterminate_before_fail_before_pass(self):
-        g = Governance()
-        results = [
-            _FakeResult("pass_rule", "PASS"),
-            _FakeResult("fail_rule", "FAIL"),
-            _FakeResult("indet_rule", "INDETERMINATE"),
-        ]
-        ordered = apply_governance(results, g)
-        statuses = [r.status for r in ordered]
-        assert statuses == ["INDETERMINATE", "FAIL", "PASS"]
-
-    def test_original_order_preserved_within_same_status(self):
-        g = Governance()
-        results = [
-            _FakeResult("fail_1", "FAIL"),
-            _FakeResult("fail_2", "FAIL"),
-        ]
-        ordered = apply_governance(results, g)
-        assert [r.rule_id for r in ordered] == ["fail_1", "fail_2"]
-
-    def test_returns_tuple(self):
-        g = Governance()
-        result = apply_governance([], g)
-        assert isinstance(result, tuple)
+def test_without_governance_results_are_untouched() -> None:
+    results = (Fake("a", "PASS"), Fake("b", "FAIL"), Fake("c", "ERROR"))
+    assert apply_governance(results, Governance()) == results
 
 
-# ---------------------------------------------------------------------------
-# warn_if_overdue
-# ---------------------------------------------------------------------------
+def test_attention_order() -> None:
+    g = Governance(
+        criticality="analytical",
+        rules={
+            "reg_unknown": _rule("regulatory_reporting"),
+            "reg_fail": _rule("regulatory_reporting"),
+            "reg_pass": _rule("regulatory_reporting"),
+        },
+    )
+    results = [
+        Fake("ana_pass", "PASS"),
+        Fake("ana_fail", "FAIL"),
+        Fake("reg_pass", "PASS"),
+        Fake("ana_error", "ERROR"),
+        Fake("reg_fail", "FAIL"),
+        Fake("reg_unknown", "INDETERMINATE"),
+    ]
+    ordered = [r.rule_id for r in apply_governance(results, g)]
+    assert ordered == [
+        # Regulatory problems first; "could not measure" before "failed".
+        "reg_unknown",
+        "reg_fail",
+        # Then analytical problems, errors before failures.
+        "ana_error",
+        "ana_fail",
+        # Passing rules last, in contract order.
+        "ana_pass",
+        "reg_pass",
+    ]
 
 
-class TestWarnIfOverdue:
-    def test_emits_warning_when_overdue(self):
-        g = Governance(approved_at="2020-01-01", review_cycle="quarterly")
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            warn_if_overdue(g)
-        assert any(issubclass(w.category, StaleContractWarning) for w in caught)
+def _rule(criticality: str) -> Any:
+    from quaxdim.governance import RuleGovernance
 
-    def test_no_warning_when_recent(self):
-        today = datetime.date.today()
-        g = Governance(
-            approved_at=(today - datetime.timedelta(days=5)).isoformat(),
-            review_cycle="quarterly",
-        )
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            warn_if_overdue(g)
-        assert not any(issubclass(w.category, StaleContractWarning) for w in caught)
-
-    def test_no_warning_when_undeclared(self):
-        g = Governance()
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            warn_if_overdue(g)
-        assert not any(issubclass(w.category, StaleContractWarning) for w in caught)
+    return RuleGovernance(criticality=criticality)
 
 
-# ---------------------------------------------------------------------------
-# Integration: evaluate_optimized
-# ---------------------------------------------------------------------------
+def test_results_gain_their_metadata() -> None:
+    g = Governance.from_contract(contract(FULL))
+    by_id = {r.rule_id: r for r in apply_governance(
+        [Fake(rule_id, "PASS") for rule_id in RULES], g
+    )}
+    unique = by_id["employee_id_unique"]
+    assert (unique.steward, unique.on_failure, unique.criticality) == (
+        "equipo-SIGA",
+        "block_publication",
+        "regulatory_reporting",
+    )
+    present = by_id["employee_id_present"]
+    assert (present.steward, present.criticality) == (None, "analytical")
 
 
-class TestEvaluateOptimizedIntegration:
-    """Light integration tests: only check that governance flows into the report."""
+# --------------------------------------------------------------------------
+# Both engines
+# --------------------------------------------------------------------------
 
-    def _run(self, governance_block=None):
-        """Run evaluate_optimized on the sample employees contract."""
-        import yaml
-        from quaxdim import evaluate_optimized
 
-        with open("examples/contract_employees.yaml", encoding="utf-8") as fh:
-            contract = yaml.safe_load(fh)
+def test_no_block_gives_the_same_report_as_before() -> None:
+    report = evaluate_optimized(contract(), data={"employees": CSV})
+    assert [r.rule_id for r in report.results] == list(RULES)
+    assert all(r.criticality is None for r in report.results)
+    assert report.to_dict()["governance"] == {}
 
-        if governance_block:
-            contract["governance"] = governance_block
-        else:
-            contract.pop("governance", None)
 
-        return evaluate_optimized(
-            contract, data={"employees": "examples/employees.csv"}
-        )
+def test_native_engine_orders_and_enriches() -> None:
+    governed = contract({**FULL, "approved_at": recent()})
+    report = evaluate_optimized(governed, data={"employees": CSV})
+    assert report.results[0].rule_id == "employee_id_unique"
+    assert report.results[0].steward == "equipo-SIGA"
+    assert report.results[-1].status == "PASS"
+    payload = json.loads(report.to_json())
+    assert payload["governance"]["data_owner"] == FULL["data_owner"]
 
-    def test_no_governance_report_has_undeclared_governance(self):
-        report = self._run()
-        assert not report.governance.declared
 
-    def test_governance_propagates_to_report(self):
-        report = self._run(
-            governance_block={
-                "criticality": "operational",
-                "data_owner": "HR",
-                "rules": {
-                    "employee_id_present": {
-                        "steward": "hr-team",
-                        "on_failure": "open_ticket",
-                    }
-                },
-            }
-        )
-        assert report.governance.criticality == "operational"
-        assert report.governance.data_owner == "HR"
+def test_pandas_engine_orders_and_enriches() -> None:
+    pd = pytest.importorskip("pandas")
+    frame = pd.read_csv(CSV, dtype="string", keep_default_na=False)
+    governed = contract({**FULL, "approved_at": recent()})
+    report = evaluate_contract(governed, data={"employees": frame})
+    assert report.results[0].rule_id == "employee_id_unique"
+    assert report.governance.criticality == "analytical"
+    table = report.to_frame()
+    assert list(table.columns[:4]) == [
+        "asset_id",
+        "metric_id",
+        "dimension_ids",
+        "status",
+    ]
+    assert list(table.columns[4:7]) == ["criticality", "steward", "on_failure"]
+    assert table.loc["employee_id_unique", "steward"] == "equipo-SIGA"
 
-    def test_governance_enriches_results(self):
-        report = self._run(
-            governance_block={
-                "criticality": "analytical",
-                "rules": {
-                    "employee_id_present": {"steward": "data-team"}
-                },
-            }
-        )
-        result = next(r for r in report.results if r.rule_id == "employee_id_present")
-        assert result.steward == "data-team"
-        assert result.criticality == "analytical"
 
-    def test_to_dict_includes_governance(self):
-        report = self._run(governance_block={"criticality": "exploratory"})
-        d = report.to_dict()
-        assert "governance" in d
-        assert d["governance"]["criticality"] == "exploratory"
+# --------------------------------------------------------------------------
+# Command line
+# --------------------------------------------------------------------------
+
+
+def _write(tmp_path: Path, document: dict[str, Any]) -> str:
+    path = tmp_path / "contract.yaml"
+    path.write_text(yaml.safe_dump(document), encoding="utf-8")
+    return str(path)
+
+
+def test_cli_native_execute_shows_governance_first(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = _write(tmp_path, contract({**FULL, "approved_at": recent()}))
+    code = main([
+        "native-execute", CSV, "--asset", "employees", "--contract", path,
+        "--output", str(tmp_path / "report.json"),
+    ])
+    assert code == 1
+    printed = capsys.readouterr().out
+    rows = json.loads(printed[: printed.rindex("]") + 1])
+    assert rows[0]["rule_id"] == "employee_id_unique"
+    assert rows[0]["criticality"] == "regulatory_reporting"
+
+
+def test_cli_pandas_execute_prints_a_table(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    pytest.importorskip("pandas")
+    path = _write(tmp_path, contract({**FULL, "approved_at": recent()}))
+    code = main([
+        "execute", CSV, "--asset", "employees", "--contract", path,
+        "--output", str(tmp_path / "report.json"),
+    ])
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "equipo-SIGA" in out and "Overall: NOT PASS" in out
+
+
+def test_cli_pandas_execute_without_governance(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    pytest.importorskip("pandas")
+    code = main([
+        "execute", CSV, "--asset", "employees", "--contract", str(CONTRACT),
+        "--output", str(tmp_path / "report.json"),
+    ])
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "steward" not in out and "employee_id_present" in out

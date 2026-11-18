@@ -110,6 +110,10 @@ def validate_contract_structure(
     if check_schema:
         validate_schema(contract)
     validate_unique_ids(contract)
+    # Imported here: governance depends on this module for ContractError.
+    from .governance import Governance
+
+    Governance.from_contract(contract)
 
 
 def identity_key_problem(rule: Mapping[str, Any]) -> str | None:

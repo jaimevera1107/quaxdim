@@ -226,3 +226,36 @@ def test_spark_schema_and_aggregated_discovery(spark):
     assert measured.row_count == 3
     o = next(x for x in measured.profile if x["name"] == "OCU_ID")
     assert o["intrinsic_nulls"] == 1 and o["non_null"] == 2
+
+
+def test_spark_report_carries_governance_and_methodology(spark):
+    c = _contract()
+    c["governance"] = {
+        "criticality": "analytical",
+        "rules": {
+            "grain_unique": {
+                "steward": "equipo-SIGA",
+                "criticality": "regulatory_reporting",
+            }
+        },
+    }
+    report = SparkContractExecutor().run(
+        c,
+        data={"mercado_laboral": _data(spark)},
+        evidence={
+            "ocupaciones_2025": {
+                "values": ["001", "003"],
+                "verified": True,
+                "version": "2025",
+            }
+        },
+    )
+    # The regulatory INDETERMINATE outranks the analytical FAIL.
+    assert [r.rule_id for r in report.results[:2]] == [
+        "grain_unique",
+        "OCU_ID_required",
+    ]
+    assert report.results[0].steward == "equipo-SIGA"
+    assert report.to_dict()["governance"]["criticality"] == "analytical"
+    doc = report.to_methodology("dama_uk_2013")
+    assert "Uniqueness" in [d["label"] for d in doc.evaluated]

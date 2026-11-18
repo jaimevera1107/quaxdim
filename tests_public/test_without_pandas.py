@@ -134,3 +134,35 @@ def test_cli_native_commands_run_without_pandas(workdir: Path) -> None:
         )
         assert result.returncode == 0, f"{command}: {result.stderr}"
         assert json.loads((workdir / f"{command}.json").read_text())
+
+
+def test_governance_and_methodology_run_without_pandas(
+    workdir: Path,
+) -> None:
+    result = _run(
+        """
+        import warnings
+        warnings.simplefilter("error")
+        from quaxdim import (
+            build_reviewed_contract, discover_advanced, evaluate_optimized,
+        )
+        advice = discover_advanced("data.csv", asset_id="dataset")
+        ids = [r.id for r in advice.recommendations
+               if r.evaluator == "builtin.presence" and r.fields == ("ID",)]
+        contract, _ = build_reviewed_contract(
+            advice, approve=ids, purpose="governance without pandas",
+            thresholds={i: 1.0 for i in ids},
+        )
+        contract["governance"] = {
+            "data_owner": "owner",
+            "criticality": "regulatory_reporting",
+            "rules": {contract["rules"][0]["id"]: {"steward": "team"}},
+        }
+        report = evaluate_optimized(contract, data={"dataset": "data.csv"})
+        assert report.results[0].steward == "team"
+        text = report.to_methodology("dama_uk_2013").to_markdown()
+        assert "missing_label" in text, text
+        """,
+        workdir,
+    )
+    assert result.returncode == 0, result.stderr

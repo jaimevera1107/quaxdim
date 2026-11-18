@@ -1,19 +1,23 @@
 """Governance metadata attached to quality contracts.
 
-The ``governance`` block in a contract is entirely optional.  When absent,
-every public function behaves exactly as before this module was introduced.
+The ``governance`` block in a contract is entirely optional. When it is
+absent, every engine produces the same report it produced before this module
+existed: same results, same order.
 
-Design follows the DQ01 / DQ04 processes from Karkošková (2023):
-  - data_owner / approved_by / approved_at encode the accountability chain.
-  - criticality classifies data elements (regulatory_reporting > operational >
-    analytical > exploratory).
-  - review_cycle + approved_at let callers detect stale contracts.
-  - rules maps each rule_id to a RuleGovernance with a steward and an
-    on_failure action.
+The block follows the DQ01 and DQ04 processes of Karkošková (2023):
 
-Nothing in this module changes verdicts.  It enriches results so that
-downstream consumers (dashboards, ticketing systems) can apply DQ03–DQ05
-without reimplementing the parsing.
+- ``data_owner``, ``approved_by`` and ``approved_at`` record who is
+  accountable for the contract and who approved it.
+- ``criticality`` classifies the data (``regulatory_reporting`` is the most
+  critical); a rule may override it for itself.
+- ``review_cycle`` together with ``approved_at`` tells whether the contract
+  is due for review.
+- ``rules`` maps rule IDs to a steward and a recommended ``on_failure``
+  action.
+
+Nothing here changes a verdict. The metadata travels with the report so that
+the systems which handle incidents (DQ03 to DQ05) do not have to re-parse
+the contract.
 """
 
 from __future__ import annotations
@@ -23,18 +27,16 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from .contract_validation import ContractError
+
 __all__ = [
     "CRITICALITY_ORDER",
     "FAILURE_ACTIONS",
     "REVIEW_CYCLE_DAYS",
+    "Governance",
     "GovernanceError",
     "RuleGovernance",
-    "Governance",
 ]
-
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
 
 CRITICALITY_ORDER: tuple[str, ...] = (
     "regulatory_reporting",
@@ -42,21 +44,12 @@ CRITICALITY_ORDER: tuple[str, ...] = (
     "analytical",
     "exploratory",
 )
-"""Ordered from highest to lowest importance.
-
-``CRITICALITY_ORDER.index(x)`` gives the sort key; lower index = higher
-priority.  Callers that do not want to depend on the tuple directly should
-use :attr:`Governance.criticality_rank`.
-"""
+"""Criticality levels, most critical first."""
 
 FAILURE_ACTIONS: frozenset[str] = frozenset(
     {"block_publication", "open_ticket", "notify", "record_only"}
 )
-"""Allowed values for ``RuleGovernance.on_failure``.
-
-QuaxDim records these values but does not act on them itself; the action is
-the responsibility of the calling system.
-"""
+"""Recommended actions on failure. QuaxDim records them and acts on none."""
 
 REVIEW_CYCLE_DAYS: Mapping[str, int] = {
     "monthly": 31,
@@ -64,62 +57,70 @@ REVIEW_CYCLE_DAYS: Mapping[str, int] = {
     "biannual": 184,
     "annual": 366,
 }
-"""Approximate number of days for each named review cycle."""
+"""Upper bound, in days, of each named review cycle."""
+
+_SCALAR_FIELDS: tuple[str, ...] = (
+    "data_owner",
+    "approved_by",
+    "approved_at",
+    "review_cycle",
+    "criticality",
+)
 
 
-# ---------------------------------------------------------------------------
-# Exceptions
-# ---------------------------------------------------------------------------
+class GovernanceError(ContractError):
+    """Raised when a contract's governance block is inconsistent.
+
+    It is a :class:`~quaxdim.ContractError`, so code that already handles
+    invalid contracts handles this one too.
+    """
 
 
-class GovernanceError(ValueError):
-    """Raised when a governance block violates its schema constraints."""
+def _rank(criticality: str | None) -> int:
+    """Sort key of a criticality: 0 is the most critical, unknown last."""
+    if criticality in CRITICALITY_ORDER:
+        return CRITICALITY_ORDER.index(criticality)
+    return len(CRITICALITY_ORDER)
 
 
-# ---------------------------------------------------------------------------
-# Data classes
-# ---------------------------------------------------------------------------
+def _check_criticality(value: Any, where: str) -> str | None:
+    if value is not None and value not in CRITICALITY_ORDER:
+        raise GovernanceError(
+            f"{where} must be one of {list(CRITICALITY_ORDER)}, got {value!r}"
+        )
+    return value
 
 
 @dataclass(frozen=True)
 class RuleGovernance:
-    """Per-rule governance metadata.
+    """Governance metadata of one rule.
 
-    Args:
-        steward: Identifier of the team or person responsible for this rule.
-        on_failure: What the calling system should do when this rule fails.
-            Must be one of :data:`FAILURE_ACTIONS` when given.
+    Attributes:
+        steward: Team or person who answers for the rule.
+        on_failure: Recommended action when the rule fails; one of
+            :data:`FAILURE_ACTIONS`.
+        criticality: Overrides the contract-level criticality for this rule.
     """
 
     steward: str | None = None
     on_failure: str | None = None
+    criticality: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-serialisable dictionary of non-None fields."""
-        result: dict[str, Any] = {}
-        if self.steward is not None:
-            result["steward"] = self.steward
-        if self.on_failure is not None:
-            result["on_failure"] = self.on_failure
-        return result
+        """Return the fields that are set, as a JSON-ready dictionary."""
+        return {
+            name: value
+            for name in ("steward", "on_failure", "criticality")
+            if (value := getattr(self, name)) is not None
+        }
 
 
 @dataclass(frozen=True)
 class Governance:
     """Contract-level governance metadata.
 
-    All fields are optional.  An instance with all fields ``None`` (the
-    default) is equivalent to "no governance declared" and
-    :attr:`declared` returns ``False``.
-
-    Args:
-        data_owner: Name or identifier of the data owner.
-        approved_by: Who approved this contract (name or username).
-        approved_at: ISO-8601 date string of approval (``YYYY-MM-DD``).
-        review_cycle: One of ``monthly``, ``quarterly``, ``biannual``,
-            ``annual``.  Informative only; QuaxDim does not schedule reviews.
-        criticality: One of :data:`CRITICALITY_ORDER`.
-        rules: Mapping from rule IDs to their :class:`RuleGovernance`.
+    Every field is optional. ``Governance()`` means "nothing declared" and
+    :attr:`declared` is ``False``.
     """
 
     data_owner: str | None = None
@@ -129,161 +130,152 @@ class Governance:
     criticality: str | None = None
     rules: Mapping[str, RuleGovernance] = field(default_factory=dict)
 
-    # ------------------------------------------------------------------
-    # Properties
-    # ------------------------------------------------------------------
+    @property
+    def declared(self) -> bool:
+        """Whether the contract declared any governance at all."""
+        return bool(self.rules) or any(
+            getattr(self, name) is not None for name in _SCALAR_FIELDS
+        )
 
     @property
     def criticality_rank(self) -> int:
-        """Sort key for criticality: 0 = most critical, len = unknown.
-
-        Unknown or absent criticality sorts after all known levels.
-        """
-        if self.criticality is None:
-            return len(CRITICALITY_ORDER)
-        try:
-            return CRITICALITY_ORDER.index(self.criticality)
-        except ValueError:
-            return len(CRITICALITY_ORDER)
-
-    @property
-    def declared(self) -> bool:
-        """``True`` when at least one governance field is set."""
-        return any(
-            [
-                self.data_owner,
-                self.approved_by,
-                self.approved_at,
-                self.review_cycle,
-                self.criticality,
-                self.rules,
-            ]
-        )
-
-    # ------------------------------------------------------------------
-    # Methods
-    # ------------------------------------------------------------------
+        """Sort key of the contract criticality (0 = most critical)."""
+        return _rank(self.criticality)
 
     def for_rule(self, rule_id: str) -> RuleGovernance:
-        """Return the :class:`RuleGovernance` for *rule_id*, or empty."""
+        """Return the rule's metadata, or an empty one if it has none."""
         return self.rules.get(rule_id, RuleGovernance())
+
+    def criticality_for(self, rule_id: str) -> str | None:
+        """Return the rule's own criticality, else the contract's."""
+        return self.for_rule(rule_id).criticality or self.criticality
+
+    def criticality_rank_for(self, rule_id: str) -> int:
+        """Sort key of the rule's effective criticality."""
+        return _rank(self.criticality_for(rule_id))
 
     def days_since_approval(
         self, today: datetime.date | None = None
     ) -> int | None:
-        """Number of calendar days since ``approved_at``, or ``None``.
-
-        Returns ``None`` when ``approved_at`` is not set or cannot be parsed.
-        """
-        if not self.approved_at:
+        """Days elapsed since ``approved_at``; ``None`` if it is not set."""
+        if self.approved_at is None:
             return None
-        try:
-            approved = datetime.date.fromisoformat(self.approved_at)
-        except ValueError:
-            return None
-        reference = today or datetime.date.today()
-        return (reference - approved).days
+        approved = datetime.date.fromisoformat(self.approved_at)
+        return ((today or datetime.date.today()) - approved).days
 
     def is_overdue(self, today: datetime.date | None = None) -> bool:
-        """``True`` when the review cycle has elapsed since approval.
+        """Whether the review cycle has elapsed since approval.
 
-        Returns ``False`` when either ``approved_at`` or ``review_cycle`` is
-        absent, or when the cycle name is unrecognised.
+        ``False`` when either ``approved_at`` or ``review_cycle`` is absent:
+        without both there is no deadline to miss.
         """
-        if not self.review_cycle or not self.approved_at:
-            return False
-        allowed_days = REVIEW_CYCLE_DAYS.get(self.review_cycle)
-        if allowed_days is None:
+        if self.review_cycle is None:
             return False
         elapsed = self.days_since_approval(today)
         if elapsed is None:
             return False
-        return elapsed > allowed_days
+        return elapsed > REVIEW_CYCLE_DAYS[self.review_cycle]
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-serialisable dict of non-None / non-empty fields."""
-        result: dict[str, Any] = {}
-        scalar_attrs = (
-            "data_owner", "approved_by", "approved_at",
-            "review_cycle", "criticality",
-        )
-        for attr in scalar_attrs:
-            value = getattr(self, attr)
-            if value is not None:
-                result[attr] = value
+        """Return the fields that are set, as a JSON-ready dictionary."""
+        result: dict[str, Any] = {
+            name: value
+            for name in _SCALAR_FIELDS
+            if (value := getattr(self, name)) is not None
+        }
         if self.rules:
             result["rules"] = {
-                rid: rg.to_dict() for rid, rg in self.rules.items()
+                rule_id: meta.to_dict()
+                for rule_id, meta in self.rules.items()
             }
         return result
 
-    # ------------------------------------------------------------------
-    # Construction
-    # ------------------------------------------------------------------
-
     @classmethod
     def from_contract(cls, contract: Mapping[str, Any]) -> Governance:
-        """Parse a governance block from a loaded contract dictionary.
+        """Parse and check the ``governance`` block of a contract.
 
-        Validates all fields against :data:`CRITICALITY_ORDER` and
-        :data:`FAILURE_ACTIONS`.  Raises :exc:`GovernanceError` on any
-        violation.
+        The JSON Schema already restricts the shape and the enumerations;
+        this also checks what the schema cannot express: that ``approved_at``
+        is a real calendar date and that every rule ID in
+        ``governance.rules`` exists in the contract.
 
-        A contract without a ``governance`` key returns an empty
-        :class:`Governance` instance with :attr:`declared` == ``False``.
+        Args:
+            contract: A loaded contract.
+
+        Returns:
+            The parsed governance; empty when the block is absent.
+
+        Raises:
+            GovernanceError: If the block is inconsistent.
         """
         raw = contract.get("governance")
-        if not raw:
+        if raw is None:
             return cls()
+        if not isinstance(raw, Mapping):
+            raise GovernanceError("governance must be a mapping")
 
-        # --- scalar fields ------------------------------------------------
-        data_owner: str | None = raw.get("data_owner")
-        approved_by: str | None = raw.get("approved_by")
-        approved_at: str | None = raw.get("approved_at")
-
-        review_cycle: str | None = raw.get("review_cycle")
-        if review_cycle is not None and review_cycle not in REVIEW_CYCLE_DAYS:
-            raise GovernanceError(
-                f"governance.review_cycle must be one of "
-                f"{sorted(REVIEW_CYCLE_DAYS)!r}, got {review_cycle!r}."
-            )
-
-        criticality: str | None = raw.get("criticality")
-        if criticality is not None and criticality not in CRITICALITY_ORDER:
-            raise GovernanceError(
-                f"governance.criticality must be one of "
-                f"{list(CRITICALITY_ORDER)!r}, got {criticality!r}."
-            )
-
+        approved_at = raw.get("approved_at")
         if approved_at is not None:
             try:
-                datetime.date.fromisoformat(approved_at)
+                datetime.date.fromisoformat(str(approved_at))
             except ValueError as exc:
                 raise GovernanceError(
-                    f"governance.approved_at must be an ISO-8601 date "
-                    f"(YYYY-MM-DD), got {approved_at!r}."
+                    "governance.approved_at must be a date (YYYY-MM-DD), "
+                    f"got {approved_at!r}"
                 ) from exc
+            approved_at = str(approved_at)
 
-        # --- per-rule metadata --------------------------------------------
-        rules_raw: Mapping[str, Any] = raw.get("rules") or {}
-        rules: dict[str, RuleGovernance] = {}
-        for rule_id, rule_raw in rules_raw.items():
-            on_failure: str | None = rule_raw.get("on_failure")
-            if on_failure is not None and on_failure not in FAILURE_ACTIONS:
-                raise GovernanceError(
-                    f"governance.rules[{rule_id!r}].on_failure must be one of "
-                    f"{sorted(FAILURE_ACTIONS)!r}, got {on_failure!r}."
-                )
-            rules[rule_id] = RuleGovernance(
-                steward=rule_raw.get("steward"),
-                on_failure=on_failure,
+        review_cycle = raw.get("review_cycle")
+        if review_cycle is not None and review_cycle not in REVIEW_CYCLE_DAYS:
+            raise GovernanceError(
+                "governance.review_cycle must be one of "
+                f"{list(REVIEW_CYCLE_DAYS)}, got {review_cycle!r}"
             )
 
+        criticality = _check_criticality(
+            raw.get("criticality"), "governance.criticality"
+        )
+        rules = _parse_rules(raw.get("rules") or {}, contract)
         return cls(
-            data_owner=data_owner,
-            approved_by=approved_by,
+            data_owner=raw.get("data_owner"),
+            approved_by=raw.get("approved_by"),
             approved_at=approved_at,
             review_cycle=review_cycle,
             criticality=criticality,
             rules=rules,
         )
+
+
+def _parse_rules(
+    raw_rules: Mapping[str, Any], contract: Mapping[str, Any]
+) -> dict[str, RuleGovernance]:
+    """Parse ``governance.rules`` and reject references to unknown rules."""
+    known = {
+        str(rule.get("id"))
+        for rule in contract.get("rules", [])
+        if isinstance(rule, Mapping)
+    }
+    orphans = sorted(str(r) for r in raw_rules if r not in known)
+    if orphans:
+        raise GovernanceError(
+            f"governance.rules refers to rules not in the contract: {orphans}"
+        )
+    parsed: dict[str, RuleGovernance] = {}
+    for rule_id, meta in raw_rules.items():
+        where = f"governance.rules[{rule_id!r}]"
+        if not isinstance(meta, Mapping):
+            raise GovernanceError(f"{where} must be a mapping")
+        on_failure = meta.get("on_failure")
+        if on_failure is not None and on_failure not in FAILURE_ACTIONS:
+            raise GovernanceError(
+                f"{where}.on_failure must be one of "
+                f"{sorted(FAILURE_ACTIONS)}, got {on_failure!r}"
+            )
+        parsed[str(rule_id)] = RuleGovernance(
+            steward=meta.get("steward"),
+            on_failure=on_failure,
+            criticality=_check_criticality(
+                meta.get("criticality"), f"{where}.criticality"
+            ),
+        )
+    return parsed

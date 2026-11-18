@@ -18,6 +18,7 @@ from datetime import date, datetime, timezone
 from hashlib import sha256
 from typing import Any
 
+from ._governance_apply import apply_governance, warn_if_overdue
 from ._types import SparkColumn, SparkFrame
 from .applicability import (
     BUILTIN_CAPABILITIES,
@@ -34,6 +35,8 @@ from .execution import (
     EvaluationError,
     _failure_status,
 )
+from .governance import Governance
+from .methodology import ContractContext
 from .missingness import empty_string_is_missing
 
 # Column comparison operators for the supported predicate operators.
@@ -883,12 +886,18 @@ class SparkContractExecutor:
                 default=str,
             ).encode("utf-8")
         ).hexdigest()
+        governance = Governance.from_contract(contract)
+        warn_if_overdue(governance)
         return ContractExecutionReport(
             str(contract.get("contract_version", "unknown")),
             digest,
             datetime.now(timezone.utc).isoformat(),
             plan,
-            tuple(completed[r] for r in rules),
+            apply_governance(
+                tuple(completed[r] for r in rules), governance
+            ),
+            governance=governance,
+            context=ContractContext.from_contract(contract),
         )
 
     @staticmethod

@@ -53,6 +53,16 @@ _EXPORTS = {
     },
     **{k: "approval" for k in ("build_reviewed_contract", "ApprovalError")},
     **{
+        k: "governance"
+        for k in ("Governance", "RuleGovernance", "GovernanceError")
+    },
+    "StaleContractWarning": "_governance_apply",
+    **{
+        k: "measures"
+        for k in ("list_measures", "get_profile", "MEASURES", "PROFILES")
+    },
+    "MethodologyReport": "methodology",
+    **{
         k: "discovery"
         for k in ("discover", "DiscoveryReport", "Recommendation")
     },

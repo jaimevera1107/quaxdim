@@ -112,6 +112,15 @@
                   "notify",
                   "record_only"
                 ]
+              },
+              "criticality": {
+                "type": "string",
+                "enum": [
+                  "regulatory_reporting",
+                  "operational",
+                  "analytical",
+                  "exploratory"
+                ]
               }
             },
             "additionalProperties": false
@@ -1104,6 +1113,12 @@
           "required": [],
           "properties": {},
           "additionalProperties": true
+        },
+        "standard_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/standard_ref"
+          }
         }
       },
       "additionalProperties": false
@@ -1267,6 +1282,44 @@
           "required": [],
           "properties": {},
           "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "standard_ref": {
+      "type": "object",
+      "description": "Citable reference to a standard. Metadata only: it never changes a verdict and is not a claim of conformance.",
+      "required": [
+        "standard"
+      ],
+      "properties": {
+        "standard": {
+          "type": "string",
+          "minLength": 1
+        },
+        "clause": {
+          "type": "string",
+          "minLength": 1
+        },
+        "measure_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "interpretation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "verification": {
+          "type": "string",
+          "enum": [
+            "public_text",
+            "licensed_copy",
+            "derived_from_literature",
+            "conflicting_public_sources"
+          ]
+        },
+        "note": {
+          "type": "string"
         }
       },
       "additionalProperties": false

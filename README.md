@@ -19,8 +19,16 @@ Scalable · Context-aware · Explainable · Auditable
 ---
 
 QuaxDim measures data quality against **contracts you approve**, and tells
-you exactly what it could and could not verify. Three ideas run through the
-whole library:
+you exactly what it could and could not verify.
+
+Validation libraries usually start once somebody has already decided the
+rules. QuaxDim models that decision: discovery proposes rules with evidence,
+a person approves them, and the approved contract records what was agreed,
+for what purpose, by whom, who answers when it fails and how critical the
+data are. The contract is the governance artefact; the report and its
+methodology document are the evidence an auditor asks for.
+
+Four ideas run through the whole library:
 
 - **Nothing is enforced without a person approving it.** Discovery proposes
   hypotheses with evidence; you turn the ones you trust into rules.
@@ -30,6 +38,10 @@ whole library:
 - **The same contract gives the same answer on every engine.** A CSV stream,
   DuckDB, Polars and Spark are held to identical semantics by a parity test
   matrix; what cannot be made equivalent is blocked, not approximated.
+- **Every verdict is traceable to a decision.** The contract can name its
+  owner, approver, review cycle and criticality, and a steward per rule;
+  the report carries them and puts the critical problems first. All of it
+  is optional and none of it changes a verdict.
 
 The dimension vocabulary follows Rupa Mahanti's *Data Quality: Dimensions,
 Measurement, Strategy, Management, and Governance* (2019) and ISO/IEC 25012.
@@ -41,12 +53,13 @@ The catalogue is conceptual: it does not claim a metric for every dimension.
 2. [Five-minute workflow](#five-minute-workflow)
 3. [Reading a report](#reading-a-report)
 4. [Writing a contract by hand](#writing-a-contract-by-hand)
-5. [Engines and supported rules](#engines-and-supported-rules)
-6. [Tuning discovery](#tuning-discovery)
-7. [Command line](#command-line)
-8. [pandas APIs](#pandas-apis)
-9. [What QuaxDim does not do](#what-quaxdim-does-not-do)
-10. [Documentation](#documentation), [development](#development), [license](#license-and-references)
+5. [Governance and methodology](#governance-and-methodology)
+6. [Engines and supported rules](#engines-and-supported-rules)
+7. [Tuning discovery](#tuning-discovery)
+8. [Command line](#command-line)
+9. [pandas APIs](#pandas-apis)
+10. [What QuaxDim does not do](#what-quaxdim-does-not-do)
+11. [Documentation](#documentation), [development](#development), [license](#license-and-references)
 
 ## Install
 
@@ -254,6 +267,53 @@ Things worth knowing when you write one:
 Load a file-based contract with `quaxdim.load_contract(path)` or run it from
 the CLI below.
 
+## Governance and methodology
+
+Add an optional `governance` block to the contract:
+
+```yaml
+governance:
+  data_owner: "HR Directorate"
+  approved_by: "jvera"
+  approved_at: "2026-11-06"
+  review_cycle: quarterly
+  criticality: analytical
+  rules:
+    employee_id_unique:
+      steward: "hr-data-team"
+      on_failure: block_publication
+      criticality: regulatory_reporting
+```
+
+Every result then carries its `criticality`, `steward` and `on_failure`
+(also as columns of `to_frame()`), and the report lists problems with
+critical data first: a regulatory rule that could not be measured comes
+before an analytical failure. Rule IDs under `governance.rules` must exist
+in the contract, and a contract past its review cycle emits a
+`StaleContractWarning`. Without the block, reports are unchanged.
+
+The methodology document states what was assessed, with which measures and
+adaptations, and which dimensions were not assessed and why:
+
+```python
+doc = report.to_methodology("dama_uk_2013")
+print(doc.to_markdown())
+```
+
+```text
+## Not evaluated
+
+- **Timeliness** (`missing_rule`): No approved rule measures this dimension.
+- **Accuracy** (`missing_label`): The measure needs ground truth (an authoritative value per record), which cannot be derived from the data.
+- **Consistency** (`missing_rule`): No approved rule measures this dimension.
+```
+
+Each measure has a G/K/N category (computable from the data, needs supplied
+knowledge, needs external ground truth) that decides whether a dimension can
+be assessed. The document is traceability, not certification: it never
+claims conformance with a standard. Details in
+[docs/governance.md](https://github.com/jaimevera1107/quaxdim/blob/main/docs/governance.md).
+
 ## Engines and supported rules
 
 | Rule | CSV stream | DuckDB | Polars | Spark |
@@ -323,6 +383,7 @@ quaxdim advise data.csv --asset employees --mode deep --output recommendations.j
 quaxdim native-plan    data.csv --asset employees --contract contract.yaml --output plan.json
 quaxdim native-execute data.csv --asset employees --contract contract.yaml --output report.json \
     --engine auto   # auto | csv_stream | duckdb | polars
+quaxdim measures                                     # measure registry and profiles
 quaxdim --version
 ```
 
@@ -330,6 +391,10 @@ quaxdim --version
 otherwise, so it drops into a pipeline step as is. Known errors (bad
 contract, unreadable file) exit with `2` and a message on stderr. Reports are
 written atomically.
+
+`execute` and `native-execute` also write the methodology document with
+`--methodology methodology.md`, optionally against a profile with
+`--profile dama_uk_2013`.
 
 Delimiters other than a comma go in the contract's `read_options`; for
 discovery pass `--delimiter`. `.tsv` files default to tab.
@@ -378,6 +443,7 @@ The reasoning behind each limit is in
 
 ## Documentation
 
+- [Governance and methodology](https://github.com/jaimevera1107/quaxdim/blob/main/docs/governance.md)
 - [Statistical validity and limitations](https://github.com/jaimevera1107/quaxdim/blob/main/docs/statistical_validity.md)
 - [Native execution and planner](https://github.com/jaimevera1107/quaxdim/blob/main/docs/execution.es.md) (Spanish)
 - [Dimensions and methodology](https://github.com/jaimevera1107/quaxdim/blob/main/docs/dimensions.es.md) (Spanish)

@@ -23,6 +23,11 @@ from ._io import describe_source, write_text_atomic
 from ._lazy import LazyModule
 from ._version import __version__
 from .governance import Governance
+from .methodology import (
+    ContractContext,
+    MethodologyReport,
+    build_methodology,
+)
 from .pandas_evaluators import EXTRA_PANDAS_EVALUATORS, evaluate_pandas_extra
 from .tabular import results_to_frame
 
@@ -109,6 +114,10 @@ class ContractExecutionReport:
     library_version: str = __version__
     sources: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     governance: Governance = field(default_factory=Governance)
+    # Not serialised: lets to_methodology() work without the contract.
+    context: ContractContext = field(
+        default_factory=ContractContext, repr=False, compare=False
+    )
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serialisable dictionary."""
@@ -123,6 +132,17 @@ class ContractExecutionReport:
             "results": [r.to_dict() for r in self.results],
             "governance": self.governance.to_dict(),
         }
+
+    def to_methodology(
+        self, profile: str | None = None
+    ) -> MethodologyReport:
+        """Return the methodology document of this report.
+
+        Args:
+            profile: Standard profile to assess against, e.g.
+                ``"dama_uk_2013"``; by default, the contract's dimensions.
+        """
+        return build_methodology(self, profile)
 
     def to_json(self, path: str | Path | None = None) -> str:
         """Serialise to JSON, optionally writing it to ``path``.
@@ -558,6 +578,7 @@ class ContractExecutor:
             ordered_results,
             sources={aid: describe_source(src) for aid, src in data.items()},
             governance=governance,
+            context=ContractContext.from_contract(contract),
         )
 
     @staticmethod
