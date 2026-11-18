@@ -126,7 +126,9 @@ def test_no_mutation_and_duplicate_index_independent_of_positions():
     original = df.copy(deep=True)
     r = execute(df=df)
     pd.testing.assert_frame_equal(df, original)
-    assert list(r.results[0].sample_failed_positions) == [1]
+    # Look up by rule_id: governance reordering may change the tuple index.
+    ocu_required = next(x for x in r.results if x.rule_id == "OCU_ID_required")
+    assert list(ocu_required.sample_failed_positions) == [1]
 
 
 def test_multiple_missing_tokens_and_lexical_codes_no_coercion():

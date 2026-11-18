@@ -18,9 +18,11 @@ from hashlib import sha256
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ._governance_apply import apply_governance, warn_if_overdue
 from ._io import describe_source, write_text_atomic
 from ._lazy import LazyModule
 from ._version import __version__
+from .governance import Governance
 from .pandas_evaluators import EXTRA_PANDAS_EVALUATORS, evaluate_pandas_extra
 from .tabular import results_to_frame
 
@@ -76,6 +78,10 @@ class ContractRuleResult:
     sample_failed_positions: tuple[int, ...] = ()
     sample_indeterminate_positions: tuple[int, ...] = ()
     reasons: tuple[str, ...] = ()
+    # Governance enrichment (populated by apply_governance; None when absent)
+    steward: str | None = None
+    on_failure: str | None = None
+    criticality: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serialisable dictionary."""
@@ -102,6 +108,7 @@ class ContractExecutionReport:
     # Audit trail: which library produced the verdicts and on which inputs.
     library_version: str = __version__
     sources: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
+    governance: Governance = field(default_factory=Governance)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serialisable dictionary."""
@@ -114,6 +121,7 @@ class ContractExecutionReport:
             "all_passed": self.passed,
             "plan": self.plan.to_dict(),
             "results": [r.to_dict() for r in self.results],
+            "governance": self.governance.to_dict(),
         }
 
     def to_json(self, path: str | Path | None = None) -> str:
@@ -538,13 +546,18 @@ class ContractExecutor:
                 default=str,
             ).encode("utf-8")
         ).hexdigest()
+        governance = Governance.from_contract(contract)
+        warn_if_overdue(governance)
+        raw_results = tuple(results[rid] for rid in rules)
+        ordered_results = apply_governance(raw_results, governance)
         return ContractExecutionReport(
             str(contract.get("contract_version", "unknown")),
             digest,
             datetime.now(timezone.utc).isoformat(),
             actual_plan,
-            tuple(results[rid] for rid in rules),
+            ordered_results,
             sources={aid: describe_source(src) for aid, src in data.items()},
+            governance=governance,
         )
 
     @staticmethod

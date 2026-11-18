@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+## 0.10.0 — 2026-11-17
+
+### Added
+- **Governance G1** — optional `governance` block in quality contracts.
+  Implements the DQ01/DQ04 accountability layer from Karkošková (2023):
+  - `data_owner`, `approved_by`, `approved_at`, `review_cycle`, `criticality`
+    at the contract level.
+  - Per-rule `steward` and `on_failure` metadata.
+  - Both execution reports (`OptimizedReport`, `ContractExecutionReport`) now
+    carry a `governance` field and propagate `steward`, `on_failure`,
+    `criticality` to every result.
+  - Results are sorted by urgency: `ERROR` → `INDETERMINATE` → `FAIL` →
+    `UNSUPPORTED` → `PASS`, then by criticality, then by original order.
+  - `StaleContractWarning` when `approved_at` + `review_cycle` is in the past.
+  - `to_dict()` / `to_json()` include the full governance block.
+  - The governance block is **entirely optional**: a contract without it
+    produces a report identical to 0.9.1.
+- `docs/governance.md` — maps QuaxDim to the six DQ processes of Karkošková
+  (2023) and documents every governance field.
+
+### Fixed
+- `tests/test_execution.py` — result lookup by `rule_id` instead of tuple
+  index (sort order is now defined by governance, not insertion order).
+
 ## 0.9.1 — 2026-11-06
 
 ### Added

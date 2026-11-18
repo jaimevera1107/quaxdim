@@ -59,6 +59,66 @@
       "required": [],
       "properties": {},
       "additionalProperties": true
+    },
+    "governance": {
+      "type": "object",
+      "description": "Optional governance metadata for the contract (DQ01/DQ04 per Karkošková 2023).",
+      "properties": {
+        "data_owner": {
+          "type": "string",
+          "minLength": 1
+        },
+        "approved_by": {
+          "type": "string",
+          "minLength": 1
+        },
+        "approved_at": {
+          "type": "string",
+          "format": "date"
+        },
+        "review_cycle": {
+          "type": "string",
+          "enum": [
+            "monthly",
+            "quarterly",
+            "biannual",
+            "annual"
+          ]
+        },
+        "criticality": {
+          "type": "string",
+          "enum": [
+            "regulatory_reporting",
+            "operational",
+            "analytical",
+            "exploratory"
+          ]
+        },
+        "rules": {
+          "type": "object",
+          "description": "Per-rule governance metadata keyed by rule ID.",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "steward": {
+                "type": "string",
+                "minLength": 1
+              },
+              "on_failure": {
+                "type": "string",
+                "enum": [
+                  "block_publication",
+                  "open_ticket",
+                  "notify",
+                  "record_only"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false,

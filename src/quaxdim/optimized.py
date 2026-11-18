@@ -19,6 +19,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ._governance_apply import apply_governance, warn_if_overdue
 from ._io import describe_source, write_text_atomic
 from ._types import EngineModule, SparkColumn
 from ._version import __version__
@@ -38,6 +39,7 @@ from .csv_dialect import (
     validate_structure,
 )
 from .evaluator_registry import bound_model
+from .governance import Governance
 from .missingness import (
     NEVER_NULL_SENTINEL,
     empty_string_is_missing,
@@ -225,6 +227,10 @@ class OptimizedRuleResult:
     assessment_coverage: float | None
     threshold: dict[str, Any] | None
     reasons: tuple[str, ...] = ()
+    # Governance enrichment (populated by apply_governance; None when absent)
+    steward: str | None = None
+    on_failure: str | None = None
+    criticality: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serialisable dictionary."""
@@ -247,6 +253,7 @@ class OptimizedReport:
     # Audit trail: which library produced the verdicts and on which inputs.
     library_version: str = __version__
     sources: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
+    governance: Governance = field(default_factory=Governance)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serialisable dictionary."""
@@ -258,6 +265,7 @@ class OptimizedReport:
             "sources": {k: dict(v) for k, v in self.sources.items()},
             "plan": self.plan.to_dict(),
             "results": [r.to_dict() for r in self.results],
+            "governance": self.governance.to_dict(),
         }
 
     def to_frame(self) -> pd.DataFrame:
@@ -1572,11 +1580,15 @@ def evaluate_optimized(
             contract, sort_keys=True, default=str, ensure_ascii=False
         ).encode()
     ).hexdigest()
+    governance = Governance.from_contract(contract)
+    warn_if_overdue(governance)
+    ordered_outputs = apply_governance(outputs, governance)
     return OptimizedReport(
         str(contract.get("contract_version", "unknown")),
         digest,
         datetime.now(timezone.utc).isoformat(),
         plan,
-        tuple(outputs),
+        ordered_outputs,
         sources={aid: describe_source(src) for aid, src in data.items()},
+        governance=governance,
     )
